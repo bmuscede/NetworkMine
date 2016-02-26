@@ -1,6 +1,0 @@
-# Ignores all tex related output.
-*.pdf
-*.aux
-*.log
-*.gz
-*.blg
