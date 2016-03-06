@@ -1,7 +1,12 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.gitmine;
 
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -28,10 +33,13 @@ public class GitMiner {
 		}
 	}
 	
+	private final int TIMEOUT = 30;
+	
 	private GitHub client;
 	private String[] repos;
 	private String[] orgNames;
 	private Map<Integer, List<GHIssue>> issueList;
+	private Connection conn = null;
 	
 	public GitMiner(String username, String password) throws Exception{
 		//Connects to GitHub.
@@ -108,6 +116,13 @@ public class GitMiner {
 		    if (!success) return false;
 		}
 		
+		if (conn != null){
+			try {
+				conn.close();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
+		}
 		return true;
 	}
 	
@@ -118,8 +133,13 @@ public class GitMiner {
 		//Get the associated issue data.
 		Iterator<GHIssue> issues = issueList.get(ID).iterator();
 		while (issues.hasNext()){
-			if (storage == StorageType.DATABASE) 
-				storeInDB(issues.next());
+			if (storage == StorageType.DATABASE)
+				try {
+					storeInDB(storage, issues.next());
+				} catch (Exception e) {
+					e.printStackTrace();
+					return false;
+				}
 			else 
 				storeInText(issues.next());
 		}
@@ -131,10 +151,68 @@ public class GitMiner {
 		// TODO Write this method.
 	}
 
-	private void storeInDB(GHIssue issue) {
-		// TODO Write this method with SQLITE jdbc
+	private void storeInDB(StorageType store, GHIssue issue) throws Exception{
+		//Check if null
+		if (conn == null) connectToDB(store);
+		
+		//Generate statements for query.
+		int ID = issue.getId();
+		String title = issue.getTitle();
+		title = title.replace("\"", "\\\"");
+		String createdAt = issue.getCreatedAt().toString();
+		String closedAt = issue.getClosedAt().toString();
+		GHUser createdBy = issue.getUser();
+		GHUser closedBy = issue.getClosedBy();
+		
+		//Creates a query statement now.
+		Statement state = conn.createStatement();
+		state.setQueryTimeout(TIMEOUT);
+		
+		//Adds in the users.
+		try {
+		if (createdBy != null)
+			state.executeUpdate("INSERT INTO User VALUES(" + createdBy.getId() + ",\"" +
+				createdBy.getName() + "\");");
+		if (closedBy != null)
+			state.executeUpdate("INSERT INTO User VALUES(" + closedBy.getId() + ",\"" +
+				closedBy.getName() + "\");");
+		} catch (SQLException e){
+			//Do nothing since it's likely that the
+			//user already exists.
+		}
+		
+		//Adds in the issue.
+		String columns = "ID,Title";
+		String values = ID + ",\"" + title + "\"";
+		if (createdBy != null){
+			columns += ",CreatedBy,CreatedDate";
+			values += "," + createdBy.getId() + ",\"" + createdAt + "\"";
+		}
+		if (closedBy != null){
+			columns += ",ClosedBy,ClosedDate";
+			values += "," + closedBy.getId() + ",\"" + closedAt + "\"";
+		}
+		
+		try {
+			state.executeUpdate("INSERT INTO Issue(" + columns + ") VALUES(" +
+				values + ");");
+		} catch (SQLException e){
+			if (e.getMessage().contains("syntax error")){
+				System.out.println(title);
+			}
+		}
 	}
 
+	private void connectToDB(StorageType store){
+		conn = null;
+	    try {
+	    	//Connect to the database.
+	    	conn = DriverManager.getConnection("jdbc:sqlite:" + store.getStorageLoc());
+	    } catch (SQLException e){
+	    	conn = null;
+	    }
+	}
+	
 	public int getRateLim(){
 		try {
 			return client.getRateLimit().limit;

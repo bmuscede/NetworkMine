@@ -1,0 +1,19 @@
+CREATE TABLE User(
+	ID INT NOT NULL,
+	Name VARCHAR(50),
+	PRIMARY KEY(ID)
+	);
+
+CREATE TABLE Issue(
+	ID INT NOT NULL,
+	Title VARCHAR(50) NOT NULL,
+	CreatedBy INT,
+	CreatedDate VARCHAR(30),
+	ClosedBy INT,
+	ClosedDate VARCHAR(30),
+	PRIMARY KEY(ID),
+	FOREIGN KEY(CreatedBy)
+		REFERENCES User(ID),
+	FOREIGN KEY(ClosedDate)
+		REFERENCES User(ID)
+	);
