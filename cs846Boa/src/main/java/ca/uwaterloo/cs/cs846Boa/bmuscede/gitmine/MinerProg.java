@@ -1,21 +1,22 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.gitmine;
 
 import java.awt.EventQueue;
-import java.awt.Font;
-import java.awt.GridBagLayout;
-import java.awt.GridLayout;
-
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JTextField;
-import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import java.awt.event.ActionListener;
 import java.awt.event.ActionEvent;
 import javax.swing.JPanel;
-import javax.swing.JPasswordField;
 import javax.swing.border.TitledBorder;
+
+import org.kohsuke.github.GHIssueState;
+import java.awt.Font;
+import javax.swing.SwingConstants;
+import javax.swing.JComboBox;
+import javax.swing.DefaultComboBoxModel;
+import ca.uwaterloo.cs.cs846Boa.bmuscede.gitmine.GitMiner.StorageType;
 
 public class MinerProg {
 	private JFrame frmGithubIssueMiner;
@@ -23,7 +24,9 @@ public class MinerProg {
 	private JTextField txtOrg;
 	private JLabel lblOrg;
 	private GitMiner gitHubMiner;
-	private final int BOX_LEN = 10;
+	private JComboBox<GHIssueState> cmbType;
+	private JComboBox<StorageType> cmbStore;
+	private JLabel lblBottom;
 	
 	/**
 	 * Launch the application.
@@ -47,7 +50,7 @@ public class MinerProg {
 	public MinerProg() {
 		initialize();
 	}
-
+	
 	/**
 	 * Initialize the contents of the frame.
 	 */
@@ -62,27 +65,64 @@ public class MinerProg {
 		frmGithubIssueMiner.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		frmGithubIssueMiner.getContentPane().setLayout(null);
 		
+		JPanel pnlWait = new JPanel();
+		pnlWait.setVisible(false);
+		pnlWait.setBounds(0, 0, 630, 360);
+		frmGithubIssueMiner.getContentPane().add(pnlWait);
+		pnlWait.setLayout(null);
+		
+		JLabel lblWait = new JLabel("Please Wait!");
+		lblWait.setHorizontalAlignment(SwingConstants.CENTER);
+		lblWait.setFont(new Font("Tahoma", Font.PLAIN, 45));
+		lblWait.setBounds(15, 113, 600, 54);
+		pnlWait.add(lblWait);
+		
+		lblBottom = new JLabel("Mining issues for the repository <ORG>/<REPO>");
+		lblBottom.setHorizontalAlignment(SwingConstants.CENTER);
+		lblBottom.setFont(new Font("Tahoma", Font.PLAIN, 18));
+		lblBottom.setBounds(15, 170, 600, 54);
+		pnlWait.add(lblBottom);
+		
 		JLabel lblAuthenticate = new JLabel("Authenticate with GitHub:");
 		lblAuthenticate.setBounds(15, 28, 215, 20);
 		frmGithubIssueMiner.getContentPane().add(lblAuthenticate);
+		
+		JLabel lblUser = new JLabel("Logged in as <USERNAME>");
+		lblUser.setVisible(false);
+		lblUser.setBounds(245, 28, 370, 20);
+		frmGithubIssueMiner.getContentPane().add(lblUser);
 		
 		JButton btnConnectWithGithub = new JButton("GitHub Login (Optional)");
 		btnConnectWithGithub.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				//Gets user information.
-				String[] userInfo = promptGitHubLogin();
-				if (userInfo == null) return;
+				LoginDlg login = new LoginDlg(frmGithubIssueMiner);
+                login.setVisible(true);
+                
+                //Check whether it succeeded.
+                if (login.getSuccess() == false)
+					return;
+                
+                //Otherwise, we get the info.
+                String username = login.getUsername();
+                String password = login.getPassword();
 				
 				//Attempts to log in.
 				try {
-					gitHubMiner = new GitMiner(userInfo[0], userInfo[1]);
+					gitHubMiner = new GitMiner(username, password);
 				} catch (Exception e1) {
 					JOptionPane.showMessageDialog
 						(frmGithubIssueMiner, 
-						"Login for " + userInfo[0] + " failed!", "GitHub Login Failed!",
+						"Login for " + username + " failed!", "GitHub Login Failed!",
 						JOptionPane.ERROR_MESSAGE);
+					gitHubMiner = null;
+					return;
 				}
-				
+				//Now, removes the button and replaces it with username.
+				btnConnectWithGithub.setVisible(false);
+				lblUser.setText("Logged in as " + username + " (" +
+						gitHubMiner.getRateLim() + ")");
+				lblUser.setVisible(true);
 			}
 		});
 		btnConnectWithGithub.setBounds(245, 24, 370, 29);
@@ -109,8 +149,78 @@ public class MinerProg {
 		JButton btnMine = new JButton("Mine!");
 		btnMine.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
+				//First, perform an error check.
+				if (txtOrg.getText().equals("") || 
+						txtRepo.getText().equals("")){
+					JOptionPane.showMessageDialog
+						(frmGithubIssueMiner, 
+						 "No organization or repo is supplied!", "Failure",
+						 JOptionPane.ERROR_MESSAGE);
+					return;
+				}
+				
+				//Sets up the git miner object.
+				if (gitHubMiner == null){
+					//We set the org and repo to mine from.
+					try {
+						gitHubMiner = new GitMiner(new String[]{txtOrg.getText()}, 
+								new String[]{txtRepo.getText()});
+					} catch (Exception e1) {
+						e1.printStackTrace();
+					}
+				} else {
+					//We set the org and repo.
+					try {
+						gitHubMiner.setNames(new String[]{txtOrg.getText()}, 
+									new String[]{txtRepo.getText()});
+					} catch (Exception e1) {
+						e1.printStackTrace();
+					}
+				}
+				
+				//Next we get the issues flag and storage type.
+				GHIssueState type = (GHIssueState) cmbType.getSelectedItem();
+				StorageType storage = (StorageType) cmbStore.getSelectedItem();
+				
+				//Mine for issues.
+				pnlWait.setVisible(true);
+				lblBottom.setText("Mining issues for " + txtOrg.getText() + "/" +
+						txtRepo.getText());
+				gitHubMiner.mineAllIssueData(type);
+				
+				//Store the data.
+				gitHubMiner.storeAllData(storage);
+				
+				//Now we're done.
+				txtOrg.setText("");
+				txtRepo.setText("");
+				pnlWait.setVisible(false);
 			}
 		});
+		
+		JPanel pnlIssues = new JPanel();
+		pnlIssues.setBorder(new TitledBorder(null, "Issues Settings", TitledBorder.LEADING, TitledBorder.TOP, null, null));
+		pnlIssues.setBounds(15, 146, 600, 133);
+		frmGithubIssueMiner.getContentPane().add(pnlIssues);
+		pnlIssues.setLayout(null);
+		
+		JLabel lblType = new JLabel("Set Issue Type:");
+		lblType.setBounds(15, 40, 153, 20);
+		pnlIssues.add(lblType);
+		
+		cmbType = new JComboBox<GHIssueState>();
+		cmbType.setBounds(166, 37, 419, 26);
+		cmbType.setModel(new DefaultComboBoxModel(GHIssueState.values()));
+		pnlIssues.add(cmbType);
+		
+		JLabel lblStore = new JLabel("Set Storage Type:");
+		lblStore.setBounds(15, 86, 162, 20);
+		pnlIssues.add(lblStore);
+		
+		cmbStore = new JComboBox<StorageType>();
+		cmbStore.setModel(new DefaultComboBoxModel(StorageType.values()));
+		cmbStore.setBounds(166, 83, 419, 26);
+		pnlIssues.add(cmbStore);
 		btnMine.setBounds(455, 295, 160, 49);
 		frmGithubIssueMiner.getContentPane().add(btnMine);
 		
@@ -122,57 +232,5 @@ public class MinerProg {
 		});
 		btnClose.setBounds(15, 295, 160, 49);
 		frmGithubIssueMiner.getContentPane().add(btnClose);
-		
-		JPanel pnlIssues = new JPanel();
-		pnlIssues.setBorder(new TitledBorder(null, "Issues Settings", TitledBorder.LEADING, TitledBorder.TOP, null, null));
-		pnlIssues.setBounds(15, 146, 600, 133);
-		frmGithubIssueMiner.getContentPane().add(pnlIssues);
-	}
-	
-	private String[] promptGitHubLogin() {
-		//Sets up the password field.
-        JPanel connectionPanel = new JPanel(false);
-        connectionPanel.setBounds(100, 100, 528, 200);
-        connectionPanel.setLayout(null);
-        
-	 	// Create the labels and text fields.
-        JLabel lblUser = new JLabel("GitHub Username:");
-		lblUser.setFont(new Font("Tahoma", Font.PLAIN, 18));
-		lblUser.setBounds(15, 16, 162, 20);
-		connectionPanel.add(lblUser);
-		
-		JTextField txtUser = new JTextField();
-		txtUser.setFont(new Font("Tahoma", Font.PLAIN, 18));
-		txtUser.setBounds(182, 14, 309, 26);
-		connectionPanel.add(txtUser);
-		txtUser.setColumns(10);
-		
-		JLabel lblPassword = new JLabel("GitHub Password");
-		lblPassword.setFont(new Font("Tahoma", Font.PLAIN, 18));
-		lblPassword.setBounds(15, 51, 162, 20);
-		connectionPanel.add(lblPassword);
-		
-		JPasswordField txtPassword = new JPasswordField();
-		txtPassword.setFont(new Font("Tahoma", Font.PLAIN, 18));
-		txtPassword.setColumns(10);
-		txtPassword.setBounds(182, 49, 309, 26);
-		connectionPanel.add(txtPassword);
-		
-		String[] options = new String[]{"Login", "Cancel"};
-		
-		//Runs the dialog box.
-		int option = JOptionPane.showOptionDialog(null, connectionPanel, "GitHub Login",
-		                         JOptionPane.OK_CANCEL_OPTION,
-		                         JOptionPane.PLAIN_MESSAGE,
-		                         null, options, options[1]);
-		
-		//Checks if dialog is processed.
-		if(option == 0){
-			String[] values = {txtUser.getText(), 
-					new String(txtPassword.getPassword())};
-			return values;
-		}
-		
-		return null;
 	}
 }
