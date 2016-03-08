@@ -1,0 +1,26 @@
+# Starts by creating input and output variables.
+currProject: Project = input;
+out: output top(10) of string weight int;
+
+# Checks the repository ID.
+if (currProject.id == "13743989"){
+	# Iterates through the code repositories.
+	foreach(i: int; def(currProject.code_repositories[i])){		
+		# Now we get each revision.
+		foreach(j: int; def(currProject.code_repositories[i].revisions[j])){
+			# Gets the people associated.
+			user: Person = currProject.code_repositories[i].revisions[j].author;
+			
+			# Gets all the files.
+			foreach(k: int; def(currProject.code_repositories[i].revisions[j].files[k])){
+				# Gets the file path.
+				filePath: string = 
+					currProject.code_repositories[i].revisions[j].files[k].name;
+				
+				# Outputs that file.
+				out << format("%s,%s", user.email, filePath) weight 1;	
+			}
+		}
+	}
+}
+	
