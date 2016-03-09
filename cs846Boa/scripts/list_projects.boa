@@ -1,0 +1,13 @@
+####################################################
+# projects.boa
+#
+# Gets all the projects in the Boa dataset including
+# their ID and name.
+#
+# Author: Bryan & Rafi
+####################################################
+proj: Project = input;
+out: output collection of string;
+
+# Gets the ID and name of the project.
+out << format("%s,%s\n", proj.id, proj.name);

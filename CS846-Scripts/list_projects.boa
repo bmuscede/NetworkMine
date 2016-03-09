@@ -10,4 +10,4 @@ proj: Project = input;
 out: output collection of string;
 
 # Gets the ID and name of the project.
-out << format("%s %s", proj.id, proj.name);
+out << format("%s,%s\n", proj.id, proj.name);

@@ -1,0 +1,16 @@
+####################################################
+# project_id.boa
+#
+# Gets all the projects with a specific name and
+# returns their ID.
+#
+# Author: Bryan & Rafi
+####################################################
+
+project: Project = input;
+out: output collection of string;
+
+# Searches for the ID.
+if (project.name == "<PLACEHOLDER>"){
+	out << project.id;
+}
