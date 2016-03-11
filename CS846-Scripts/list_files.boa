@@ -1,0 +1,30 @@
+####################################################
+# list_files.boa
+#
+# Lists all the files in a Boa project. Used to populate
+# the contribution network.
+#
+# Author: Bryan & Rafi
+####################################################
+
+# Starts by creating input and output variables.
+currProject: Project = input;
+out: output collection of string;
+
+files: map[string] of bool;
+
+# Use the visitor pattern to visit each of the projects.
+visit(currProject, visitor { 
+	# Checks if the project matches the set ID.
+	before proj: Project -> {
+		if (proj.id != "<PLACEHOLDER>") stop;
+	}
+	
+	# Goes through all the stored revisions.	
+	before file: ChangedFile -> {
+		if (!haskey(files, file.name)){
+			out << format("%s", file.name);
+			files[file.name] = true;
+		}
+	}
+});

@@ -1,0 +1,34 @@
+CREATE TABLE Project(
+	ProjectID VARCHAR NOT NULL,
+	Name VARCHAR NOT NULL,
+	PRIMARY KEY(ProjectID)
+	);
+
+CREATE TABLE User(
+	Username VARCHAR NOT NULL,
+	Email VARCHAR,
+	Name VARCHAR,
+	PRIMARY KEY(Username)
+	);
+
+CREATE TABLE File(
+	ProjectID VARCHAR NOT NULL,
+	FilePath VARCHAR,
+	PRIMARY KEY(ProjectID, FilePath),
+	FOREIGN KEY(ProjectID)
+		REFERENCES Project(ProjectID)
+	);
+	
+CREATE TABLE CommitData(
+	ProjectID VARCHAR NOT NULL,
+	Username VARCHAR,
+	FilePath VARCHAR,
+	CommitNum INT,
+	PRIMARY KEY(ProjectID, Username, FilePath),
+	FOREIGN KEY(ProjectID)
+		REFERENCES Project(ProjectID),
+	FOREIGN KEY(FilePath)
+		REFERENCES File(FilePath),
+	FOREIGN KEY(Username)
+		REFERENCES User(Username)
+	);

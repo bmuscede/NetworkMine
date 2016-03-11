@@ -22,6 +22,7 @@ import javax.swing.JScrollPane;
 import javax.swing.ImageIcon;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.JProgressBar;
 
 public class BoaProg implements FinishedCallback {
 	private ContributionBuilder contribution;
@@ -37,6 +38,7 @@ public class BoaProg implements FinishedCallback {
 	private JSpinner spnFiles;
 	private JButton btnClose;
 	private JButton btnFind;
+	private JProgressBar prgStatus;
 	private static BoaProg window;
 	
 	private final String FIRST_MESSAGE =
@@ -47,6 +49,7 @@ public class BoaProg implements FinishedCallback {
 			+ "contribution network for<br>project ID #NUM.</center></html>";
 	private final String TITLE_TEXT = 
 			"Projects With More Than <NUM> Contributors and <NUM> Files";
+	private JLabel lblBottomMessage;
 	
 	/**
 	 * Launch the application.
@@ -115,20 +118,33 @@ public class BoaProg implements FinishedCallback {
 		lblIcon.setHorizontalAlignment(SwingConstants.CENTER);
 		lblIcon.setIcon(new ImageIcon(
 				BoaProg.class.getResource("/com/sun/java/swing/plaf/windows/icons/Inform.gif")));
-		lblIcon.setBounds(15, 55, 503, 32);
+		lblIcon.setBounds(15, 16, 503, 32);
 		pnlWait.add(lblIcon);
 		
 		JLabel lblWait1 = new JLabel("Please Wait!");
 		lblWait1.setHorizontalAlignment(SwingConstants.CENTER);
 		lblWait1.setFont(new Font("Tahoma", Font.PLAIN, 26));
-		lblWait1.setBounds(15, 103, 503, 20);
+		lblWait1.setBounds(15, 64, 503, 20);
 		pnlWait.add(lblWait1);
 		
 		lblWait2 = new JLabel("");
 		lblWait2.setHorizontalAlignment(SwingConstants.CENTER);
 		lblWait2.setFont(new Font("Tahoma", Font.PLAIN, 26));
-		lblWait2.setBounds(15, 139, 503, 54);
+		lblWait2.setBounds(15, 100, 503, 54);
 		pnlWait.add(lblWait2);
+		
+		lblBottomMessage = new JLabel("");
+		lblBottomMessage.setVisible(false);
+		lblBottomMessage.setFont(new Font("Tahoma", Font.BOLD, 16));
+		lblBottomMessage.setHorizontalAlignment(SwingConstants.CENTER);
+		lblBottomMessage.setBounds(15, 170, 503, 20);
+		pnlWait.add(lblBottomMessage);
+		
+		prgStatus = new JProgressBar();
+		prgStatus.setVisible(false);
+		prgStatus.setBorderPainted(false);
+		prgStatus.setBounds(15, 206, 503, 23);
+		pnlWait.add(prgStatus);
 		
 		pnlStage2 = new JPanel();
 		pnlStage2.setVisible(false);
@@ -179,6 +195,7 @@ public class BoaProg implements FinishedCallback {
 				lblWait2.setText("Starting to mine...");
 				pnlStage2.setVisible(false);
 				pnlWait.setVisible(true);
+				prgStatus.setVisible(true);
 				
 				//Gets selected rows.
 				String[] ids = new String[rows.length];
@@ -325,17 +342,33 @@ public class BoaProg implements FinishedCallback {
 	
 	@Override
 	public void onNetworkFinish(boolean result) {
-		// TODO Do something different here.
-		System.out.println("DONE!");
+		if (!result){
+			JOptionPane.showMessageDialog(null, "Error!\n"
+		    		+ "Something went wrong while mining the software.", "Boa Miner",
+		    		JOptionPane.ERROR_MESSAGE);
+			System.exit(0);
+		}
+		
+		JOptionPane.showMessageDialog(null, "Success!\n"
+	    		+ "All selected Boa projects were mined.", "Boa Miner",
+	    		JOptionPane.INFORMATION_MESSAGE);
 		System.exit(0);
 	}
 
 	@Override
-	public void informCurrentMine(String project) {
+	public void informCurrentMine(String project, ContributionBuilder.Stage stage,
+    		int currentPhase, int finalPhase) {
 		//Print the project being mined.
 		String mineTitle = SECOND_MESSAGE;
 		mineTitle = mineTitle.replace("NUM", project);
 		lblWait2.setText(mineTitle);
+		
+		//Prints the current phase.
+		lblBottomMessage.setVisible(true);
+		lblBottomMessage.setText(stage.getName());
+		
+		prgStatus.setMaximum(finalPhase);
+		prgStatus.setValue(currentPhase);
 	}
 	
 	private void manageFirstPhase(boolean enable){

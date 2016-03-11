@@ -212,7 +212,7 @@ public class MinerProg {
 		
 		cmbType = new JComboBox<GHIssueState>();
 		cmbType.setBounds(166, 37, 419, 26);
-		cmbType.setModel(new DefaultComboBoxModel(GHIssueState.values()));
+		cmbType.setModel(new DefaultComboBoxModel<GHIssueState>(GHIssueState.values()));
 		pnlIssues.add(cmbType);
 		
 		JLabel lblStore = new JLabel("Set Storage Type:");
@@ -220,7 +220,7 @@ public class MinerProg {
 		pnlIssues.add(lblStore);
 		
 		cmbStore = new JComboBox<StorageType>();
-		cmbStore.setModel(new DefaultComboBoxModel(StorageType.values()));
+		cmbStore.setModel(new DefaultComboBoxModel<StorageType>(StorageType.values()));
 		cmbStore.setBounds(166, 83, 419, 26);
 		pnlIssues.add(cmbStore);
 		btnMine.setBounds(455, 295, 160, 49);

@@ -1,0 +1,32 @@
+####################################################
+# list_contributors.boa
+#
+# Lists all the contributors for a Boa project based
+# some project ID.
+#
+# Author: Bryan & Rafi
+####################################################
+
+# Starts by creating input and output variables.
+currProject: Project = input;
+out: output collection of string;
+
+contributors: map[string] of bool;
+
+# Use the visitor pattern to visit each of the projects.
+visit(currProject, visitor { 
+	# Checks if the project matches the set ID.
+	before proj: Project -> {
+		if (proj.id != "<PLACEHOLDER>") stop;
+	}
+	
+	# Goes through all the stored revisions.	
+	before rev: Revision -> {
+		if (!haskey(contributors, rev.author.username)){
+			out << format("%s,%s,%s", rev.author.username,
+				rev.author.email, rev.author.real_name);
+			contributors[rev.author.username] = true;
+		}
+	}
+});
+	

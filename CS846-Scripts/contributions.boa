@@ -10,7 +10,7 @@
 
 # Starts by creating input and output variables.
 currProject: Project = input;
-out: output top(10000) of string weight int;
+out: output top(1000000) of string weight int;
 
 # Use the visitor pattern to visit each of the projects.
 visit(currProject, visitor { 
@@ -22,7 +22,7 @@ visit(currProject, visitor {
 	# Goes through all the stored revisions.	
 	before rev: Revision -> {
 		foreach(i: int; def(rev.files[i])){
-			out << format("%s, %s", rev.author.email, 
+			out << format("%s,%s", rev.author.username, 
 				rev.files[i].name) weight 1;
 		}
 	}
