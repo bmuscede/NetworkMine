@@ -15,13 +15,15 @@ public class ContributionBuilder extends Thread {
 	private BoaManager manager;
 	private String projectName;
 	
+	private final String FILE_PLACEHOLDER = "<F_PLACEHOLDER>";
+	private final String CONTRIB_PLACEHOLDER = "<C_PLACEHOLDER>";
 	private final String PLACEHOLDER = "<PLACEHOLDER>";
+	
+	private final String FIND_PROJ = "./scripts/find_projects.boa";
 	private final String FIRST = "./scripts/project_id.boa";
 	private final String SECOND = "./scripts/contributions.boa";
 	
-	public ContributionBuilder(String projectName){
-		this.projectName = projectName;
-	}
+	public ContributionBuilder(){}
 	
 	public boolean login(String user, String pass){
 		try {
@@ -36,7 +38,7 @@ public class ContributionBuilder extends Thread {
 	public boolean buildContributionNetwork(FinishedCallback cb){
 		if (manager == null) return false;
 		
-		//We run a thread that 
+		//We run a thread that gets all contributors and their commits.
 		Thread builder = new Thread(){
 			public void run(){
 				startConstruction(cb);
@@ -46,6 +48,42 @@ public class ContributionBuilder extends Thread {
 		//Starts the thread and r
 		builder.start();
 		return true;
+	}
+	
+	public boolean getProjects(FinishedCallback cb, int contrib, int files,
+			String dataset){
+		if (manager == null) return false;
+		
+		//We run a thread that gets all projects of a particular size.
+		Thread builder = new Thread(){
+			public void run(){
+				findProjects(cb, contrib, files);
+			}
+		};
+		
+		//Starts the thread.
+		builder.start();
+		return true;
+	}
+	
+	private void findProjects(FinishedCallback cb, int contrib, int files){
+		//First, we load in the find project query.
+		String query = loadQuery(FIND_PROJ);
+		if (query == null){
+			cb.onFinish(false);
+			return;
+		}
+		query = query.replace(FILE_PLACEHOLDER, String.valueOf(files));
+		query = query.replace(CONTRIB_PLACEHOLDER, String.valueOf(contrib));
+		
+		//We now run the query.
+		String output = "";
+		try {
+			output = manager.runQueryBlocking(query);
+		} catch (BoaException | JobErrorException e) {
+			cb.onFinish(false);
+			return;
+		}
 	}
 	
 	private void startConstruction(FinishedCallback cb){
@@ -115,5 +153,9 @@ public class ContributionBuilder extends Thread {
 		}
 		
 		return output;
+	}
+
+	public String[] getDatasets() {
+		return manager.getDatasets();
 	};
 }

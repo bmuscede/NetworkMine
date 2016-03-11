@@ -1,4 +1,4 @@
-package ca.uwaterloo.cs.cs846Boa.bmuscede.gitmine;
+package ca.uwaterloo.cs.cs846Boa.bmuscede.mine;
 
 import java.awt.EventQueue;
 import javax.swing.JFrame;
@@ -12,11 +12,13 @@ import javax.swing.JPanel;
 import javax.swing.border.TitledBorder;
 
 import org.kohsuke.github.GHIssueState;
+
+import ca.uwaterloo.cs.cs846Boa.bmuscede.mine.GitMiner.StorageType;
+
 import java.awt.Font;
 import javax.swing.SwingConstants;
 import javax.swing.JComboBox;
 import javax.swing.DefaultComboBoxModel;
-import ca.uwaterloo.cs.cs846Boa.bmuscede.gitmine.GitMiner.StorageType;
 
 public class MinerProg {
 	private JFrame frmGithubIssueMiner;

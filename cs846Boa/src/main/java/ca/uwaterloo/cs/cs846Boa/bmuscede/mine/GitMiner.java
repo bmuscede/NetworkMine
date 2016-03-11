@@ -1,4 +1,4 @@
-package ca.uwaterloo.cs.cs846Boa.bmuscede.gitmine;
+package ca.uwaterloo.cs.cs846Boa.bmuscede.mine;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -6,7 +6,6 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;

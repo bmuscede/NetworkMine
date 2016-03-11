@@ -179,4 +179,14 @@ public class BoaManager {
 					+ "Boa is down?");
 		}
 	}
+
+	public String[] getDatasets() {
+		String[] names = null;
+		try {
+			names = client.getDatasetNames();
+		} catch (Exception e) {
+			relogin();
+		}
+		return names;
+	}
 }

@@ -1,4 +1,4 @@
-package ca.uwaterloo.cs.cs846Boa.bmuscede.gitmine;
+package ca.uwaterloo.cs.cs846Boa.bmuscede.mine;
 
 import java.awt.*;
 import java.awt.event.*;
