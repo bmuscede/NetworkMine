@@ -83,7 +83,11 @@ public class BoaProg implements FinishedCallback {
 			//Now we try to log into Boa with this.
 			if (contribution.login(
 					login.getUsername(), login.getPassword())){
-				notLoggedIn = false;
+				notLoggedIn = false;				
+			} else {
+				JOptionPane.showMessageDialog(null, "Login failed!\n"
+			    		+ "Check your username and password.", "Boa Login",
+			    		JOptionPane.ERROR_MESSAGE);
 			}
 		}
 		
