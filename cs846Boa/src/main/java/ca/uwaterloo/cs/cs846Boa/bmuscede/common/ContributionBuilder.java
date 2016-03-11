@@ -13,15 +13,15 @@ import edu.iastate.cs.boa.LoginException;
 
 public class ContributionBuilder extends Thread {
 	private BoaManager manager;
-	private String projectName;
+	private String[] projects = null;
 	
 	private final String FILE_PLACEHOLDER = "<F_PLACEHOLDER>";
 	private final String CONTRIB_PLACEHOLDER = "<C_PLACEHOLDER>";
 	private final String PLACEHOLDER = "<PLACEHOLDER>";
+	private final String PREFIX = "out[] = ";
 	
 	private final String FIND_PROJ = "./scripts/find_projects.boa";
-	private final String FIRST = "./scripts/project_id.boa";
-	private final String SECOND = "./scripts/contributions.boa";
+	private final String CONTRIB = "./scripts/contributions.boa";
 	
 	public ContributionBuilder(){}
 	
@@ -35,13 +35,14 @@ public class ContributionBuilder extends Thread {
 		return true;
 	}
 	
-	public boolean buildContributionNetwork(FinishedCallback cb){
+	public boolean buildContributionNetwork(FinishedCallback cb, String[] ids){
 		if (manager == null) return false;
+		if (ids == null || ids.length == 0) return false;
 		
 		//We run a thread that gets all contributors and their commits.
 		Thread builder = new Thread(){
 			public void run(){
-				startConstruction(cb);
+				startConstruction(cb, ids);
 			}
 		};
 		
@@ -66,11 +67,16 @@ public class ContributionBuilder extends Thread {
 		return true;
 	}
 	
+	public String[] collectProjects() throws Exception{
+		if (projects == null) throw new Exception("No project query has been run yet.");
+		return projects;
+	}
+	
 	private void findProjects(FinishedCallback cb, int contrib, int files){
 		//First, we load in the find project query.
 		String query = loadQuery(FIND_PROJ);
 		if (query == null){
-			cb.onFinish(false);
+			cb.onProjectFindFinish(false);
 			return;
 		}
 		query = query.replace(FILE_PLACEHOLDER, String.valueOf(files));
@@ -81,59 +87,52 @@ public class ContributionBuilder extends Thread {
 		try {
 			output = manager.runQueryBlocking(query);
 		} catch (BoaException | JobErrorException e) {
-			cb.onFinish(false);
+			cb.onProjectFindFinish(false);
 			return;
 		}
+		
+		//Parse the output.
+		output = output.replace(PREFIX, "");
+		projects = output.split("\n");
+
+		
+		//Notify that we are finished.
+		cb.onProjectFindFinish(true);
 	}
 	
-	private void startConstruction(FinishedCallback cb){
-		//First, we load in the first Boa query.
-		String query = loadQuery(FIRST);
-		if (query == null){ 
-			cb.onFinish(false);
-			return;
+	private void startConstruction(FinishedCallback cb, String[] ids){
+		//Iterate through all the supplied IDs.
+		for (int i = 0; i < ids.length; i++){
+			cb.informCurrentMine(ids[i]);
+			
+			boolean suc = runMine(ids[i]);
+			if (!suc) cb.onNetworkFinish(false);
 		}
-		query = query.replace(PLACEHOLDER, projectName);
 		
-		//Runs the first query.
+		cb.onNetworkFinish(true);
+	}
+
+	private boolean runMine(String ID){
+		//Now we load in the contribution file.
+		String query = loadQuery(CONTRIB);
+		if (query == null){ 
+			return false;
+		}
+		query = query.replace(PLACEHOLDER, ID);
+		
+		//Runs the contributions query.
 		String output = "";
 		try {
 			output = manager.runQueryBlocking(query);
 		} catch (BoaException | JobErrorException e) {
-			cb.onFinish(false);
-			return;
+			return false;
 		}
 		
-		//Next, we use the output to parse the project ID.
-		Matcher matcher = Pattern.compile("\\d+").matcher(output);
-		boolean success = matcher.find();
-		if (!success){
-			cb.onFinish(false);
-			return;
-		}
-		output = matcher.group();
-		
-		//Now we load in the contribution file.
-		query = loadQuery(SECOND);
-		if (query == null){ 
-			cb.onFinish(false);
-			return;
-		}
-		query = query.replace(PLACEHOLDER, output);
-		
-		//Runs the contributions query.
-		output = "";
-		try {
-			output = manager.runQueryBlocking(query);
-		} catch (BoaException | JobErrorException e) {
-			cb.onFinish(false);
-			return;
-		}
-		
-		//TODO Do something interesting with the output.
+		//TODO: Do something different with this.
+		System.out.println(output);
 		
 		//Finally, we set success.
-		cb.onFinish(true);
+		return true;
 	}
 
 	private String loadQuery(String path) {
