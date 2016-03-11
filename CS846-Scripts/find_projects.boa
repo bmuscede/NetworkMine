@@ -1,0 +1,54 @@
+####################################################
+# find_projects.boa
+#
+# Gets all the project names and IDs for projects
+# that have OVER a certain number of files and
+# contributors. This is specified by the query runner.
+#
+# Author: Bryan & Rafi
+####################################################
+
+project: Project = input;
+out: output collection of string;
+
+# Intermediate types.
+c_counts: int;
+f_counts: int;
+committers: map[string] of bool;
+files: map[string] of bool;
+
+# Traverses through the project graph.
+visit(project, visitor {
+	before proj: Project -> {
+		c_counts = 0;
+		f_counts = 0;
+		clear(committers);
+		clear(files);	
+	}
+	
+	before node: Revision -> {
+		# Prevents duplication amongst multiple commits.
+		if (!haskey(committers, node.committer.username)) {
+			committers[node.committer.username] = true;
+			c_counts = c_counts + 1;
+		}
+		
+		visit(node, visitor {
+			# Prevents duplication amongst multiple commits.
+			before fNode: ChangedFile -> {
+				if (!haskey(files, fNode.name)){
+					files[fNode.name] = true;
+					f_counts = f_counts + 1;
+				}	
+			}
+		});
+	}
+	
+	after pNode: Project -> {
+		# Now, we prepare the output.
+		if (c_counts > <C_PLACEHOLDER> and f_counts > <F_PLACEHOLDER>){
+			out << format("(%s, %s) = %d %d", project.id, project.name,
+				c_counts, f_counts);
+		}
+	}
+});
