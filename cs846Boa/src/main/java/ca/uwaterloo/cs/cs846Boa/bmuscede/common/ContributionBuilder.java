@@ -270,8 +270,8 @@ public class ContributionBuilder extends Thread {
 			values = user.split(",");
 			sql = "INSERT INTO User VALUES(\"" + values[0] + "\",\"" +
 					values[1] + "\",\"" + values[2] + "\");";
-			sqlOther = "INSERT INTO BelongsTo VALUES(\"" + ID + "\",\"" +
-					values[0] + "\");";
+			sqlOther = "INSERT INTO BelongsTo VALUES(\"" + values[0] + "\",\"" +
+					ID + "\");";
 			try {
 				state.executeUpdate(sql);
 				state.executeUpdate(sqlOther);

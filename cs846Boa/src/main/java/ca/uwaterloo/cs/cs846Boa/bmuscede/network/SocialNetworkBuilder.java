@@ -6,6 +6,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.graph.UndirectedSparseGraph;
@@ -34,13 +36,19 @@ public class SocialNetworkBuilder {
 	    }
 	    
 	    //Reads all project files.
-		readFiles(projectID, state);
+		ArrayList<String[]> files = readFiles(projectID, state);
+		if (files == null) return false;
+		Map<String, FileActor> fileLookup = buildLookupFiles(files);
 		
 		//Reads all project users.
-		readUsers(projectID, state);
+		ArrayList<String[]> users = readUsers(projectID, state);
+		if (users == null) return false;
+		Map<String, UserActor> userLookup = buildLookupUsers(users);
 		
 		//Reads all edges.
-		readContributions(projectID, state);
+		ArrayList<String[]> contrib = readContributions(projectID, state);
+		if (contrib == null) return false;
+		addEdges(fileLookup, userLookup, contrib);
 		
 		//Closes the database connection.
 		try {
@@ -53,6 +61,55 @@ public class SocialNetworkBuilder {
 		return true;
 	}
 
+	private Map<String, FileActor> 
+		buildLookupFiles(ArrayList<String[]> files) {
+		Map<String, FileActor> lookup = new HashMap<String, FileActor>();
+		
+		//Iterates through all the files.
+		for (int i = 0; i < files.size(); i++){
+			String[] items = files.get(i);
+			FileActor file = new FileActor(items[0]);
+			
+			//Adds the files to the lookup table.
+			lookup.put(items[0], file);
+		}
+		
+		return lookup;
+	}
+	
+	private Map<String, UserActor> 
+		buildLookupUsers(ArrayList<String[]> users){
+		Map<String, UserActor> lookup = new HashMap<String, UserActor>();
+		
+		//Iterates through all the users.
+		for (int i = 0; i < users.size(); i++){
+			String[] items = users.get(i);
+			UserActor user = new UserActor(items[0], items[1], items[2]);
+			
+			//Adds the users to the lookup table.
+			lookup.put(items[0], user);
+		}
+		
+		return lookup;
+	}
+	
+	private void addEdges(Map<String, FileActor> fLookup,
+			Map<String, UserActor> uLookup, 
+			ArrayList<String[]> contrib) {
+		//Iterates through each of the edges.
+		for (int i = 0; i < contrib.size(); i++){
+			String[] items = contrib.get(i);
+			
+			//Develops the edge.
+			Commit comm = new Commit(Integer.parseInt(items[2]));
+			FileActor file = fLookup.get(items[1]);
+			UserActor user = uLookup.get(items[0]);
+			
+			//Adds the edge based on the lookup table.
+			network.addEdge(comm, file, user);
+		}
+	}
+	
 	private ArrayList<String[]> readFiles(String projID, Statement state){
 		ResultSet rs;
 		ArrayList<String[]> results = new ArrayList<String[]>();
@@ -60,7 +117,7 @@ public class SocialNetworkBuilder {
 		//Develops the query.
 		try {
 			rs = state.executeQuery("SELECT * FROM File WHERE "
-							+ "ProjectID = \"" + state + "\";");
+							+ "ProjectID = \"" + projID + "\";");
 			
 			//We iterate through the results.
 			while (rs.next()){
@@ -85,7 +142,7 @@ public class SocialNetworkBuilder {
 			rs = state.executeQuery("SELECT * FROM User "
 						+ "INNER JOIN BelongsTo ON User.Username = "
 						+ "BelongsTo.User WHERE "
-						+ "Project = \"" + state + "\";");
+						+ "Project = \"" + projID + "\";");
 			
 			//We iterate through the results.
 			while (rs.next()){
@@ -109,10 +166,8 @@ public class SocialNetworkBuilder {
 		
 		//Develops the query.
 		try {
-			rs = state.executeQuery("SELECT * FROM User "
-						+ "INNER JOIN BelongsTo ON User.Username = "
-						+ "BelongsTo.User WHERE "
-						+ "Project = \"" + state + "\";");
+			rs = state.executeQuery("SELECT * FROM CommitData "
+						+ "WHERE ProjectID = \"" + projID + "\";");
 			
 			//We iterate through the results.
 			while (rs.next()){
