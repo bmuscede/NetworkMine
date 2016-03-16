@@ -44,7 +44,6 @@ public class ContributionBuilder extends Thread {
 	private final String COMMITS = "./scripts/contributions.boa";
 	
 	private final String DB_LOC = "data/boa.db";
-	private final String SCHEMA_LOC = "./data/schema.txt";
 	private final int TIMEOUT = 30;
 	
 	public ContributionBuilder(){}
@@ -139,28 +138,28 @@ public class ContributionBuilder extends Thread {
 		//Iterate through all the supplied IDs.
 		for (int i = 0; i < ids.length; i++){			
 			//Stores the project information.
-			cb.informCurrentMine(ids[i], Stage.PROJECT, i, i * 4);
+			cb.informCurrentMine(ids[i], Stage.PROJECT, i, ids.length * 4);
 			if (!storeProject(ids[i], conn)) {
 				conn.close();
 				cb.onNetworkFinish(false);
 			}
 			
 			//Gets the files in the project.
-			cb.informCurrentMine(ids[i], Stage.FILES, i + 1, i * 4);
+			cb.informCurrentMine(ids[i], Stage.FILES, i + 1, ids.length * 4);
 			if (!runFiles(ids[i], conn)) {
 				conn.close();
 				cb.onNetworkFinish(false);
 			}
 			
 			//Gets the contributors.
-			cb.informCurrentMine(ids[i], Stage.CONTRIB, i + 2, i * 4);
+			cb.informCurrentMine(ids[i], Stage.CONTRIB, i + 2, ids.length * 4);
 			if (!runContributors(ids[i], conn)) {
 				conn.close();
 				cb.onNetworkFinish(false);
 			}
 			
 			//Gets all the commits.
-			cb.informCurrentMine(ids[i], Stage.COMMIT, i + 3, i * 4);
+			cb.informCurrentMine(ids[i], Stage.COMMIT, i + 3, ids.length * 4);
 			if (!runCommits(ids[i], conn)) {
 				conn.close();
 				cb.onNetworkFinish(false);
@@ -245,14 +244,15 @@ public class ContributionBuilder extends Thread {
 		
 		//Parses and saves the output.
 		output = output.replace(PREFIX, "");
-		if (!saveContributors(output.split("\n"), conn))
+		if (!saveContributors(ID, output.split("\n"), conn))
 				return false;
 		
 		//Finally, we set success.
 		return true;
 	}
 
-	private boolean saveContributors(String[] output, Connection conn) {
+	private boolean saveContributors(String ID,
+			String[] output, Connection conn) {
 		//Set up the query parser.
 		Statement state;
 		try {
@@ -264,15 +264,17 @@ public class ContributionBuilder extends Thread {
 		}
 		
 		//For each file we build our own insert method.
-		String sql;
+		String sql, sqlOther;
 		String[] values;
 		for (String user : output){
 			values = user.split(",");
 			sql = "INSERT INTO User VALUES(\"" + values[0] + "\",\"" +
 					values[1] + "\",\"" + values[2] + "\");";
-			
+			sqlOther = "INSERT INTO BelongsTo VALUES(\"" + ID + "\",\"" +
+					values[0] + "\");";
 			try {
 				state.executeUpdate(sql);
+				state.executeUpdate(sqlOther);
 			} catch (SQLException e) {
 				e.printStackTrace();
 				if (!e.getMessage().contains("UNIQUE"))

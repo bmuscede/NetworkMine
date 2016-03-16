@@ -11,6 +11,16 @@ CREATE TABLE User(
 	PRIMARY KEY(Username)
 	);
 
+CREATE TABLE BelongsTo(
+	User VARCHAR NOT NULL,
+	Project VARCHAR NOT NULL,
+	PRIMARY KEY (User, Project),
+	FOREIGN KEY(User)
+		REFERENCES User(Username),
+	FOREIGN KEY(Project)
+		REFERENCES Project(ProjectID)
+	);
+	
 CREATE TABLE File(
 	ProjectID VARCHAR NOT NULL,
 	FilePath VARCHAR,
