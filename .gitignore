@@ -3,3 +3,4 @@
 .recommenders/
 
 ./cs846Boa/.project
+cs846Boa/data/boa.db
