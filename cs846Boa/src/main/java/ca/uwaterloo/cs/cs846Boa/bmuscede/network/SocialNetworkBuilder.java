@@ -9,11 +9,19 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
+import edu.uci.ics.jung.algorithms.scoring.BetweennessCentrality;
+import edu.uci.ics.jung.algorithms.scoring.ClosenessCentrality;
+import edu.uci.ics.jung.algorithms.scoring.DegreeScorer;
 import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.graph.UndirectedSparseGraph;
 
 public class SocialNetworkBuilder {
 	private Graph<Actor, Commit> network;
+	
+	//Map to hold centrality.
+	Map<Actor, Double[]> scoreMap = null;
+	
+	//Final variables.
 	private final String DB_LOC = "data/boa.db";
 	private final int TIMEOUT = 30;
 	
@@ -61,6 +69,33 @@ public class SocialNetworkBuilder {
 		return true;
 	}
 
+	public boolean computeCentrality(){
+		//First, checks if we have a full graph.
+		if (network.getVertexCount() == 0) return false;
+		
+		//Develops the network scoring systems.
+		BetweennessCentrality<Actor, Commit> betweenCompute = 
+				new BetweennessCentrality<Actor, Commit>(network);
+		ClosenessCentrality<Actor, Commit> closeCompute =
+				new ClosenessCentrality<Actor, Commit>(network);
+		DegreeScorer<Actor> degreeCompute = 
+				new DegreeScorer<Actor>(network);
+		
+		//Now we create our scoring map.
+		scoreMap = new HashMap<Actor, Double[]>();
+		
+		//Finally, we iterate through the actors in our network.
+		for (Actor curr : network.getVertices()){
+			Double scores[] = {betweenCompute.getVertexScore(curr),
+					closeCompute.getVertexScore(curr),
+					(double) degreeCompute.getVertexScore(curr)};
+			
+			scoreMap.put(curr, scores);
+		}
+		
+		//Success.
+		return true;
+	}
 	private Map<String, FileActor> 
 		buildLookupFiles(ArrayList<String[]> files) {
 		Map<String, FileActor> lookup = new HashMap<String, FileActor>();

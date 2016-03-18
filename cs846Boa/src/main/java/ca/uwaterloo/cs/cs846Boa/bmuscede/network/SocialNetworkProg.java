@@ -30,9 +30,22 @@ public class SocialNetworkProg {
     	SocialNetworkBuilder snb = new SocialNetworkBuilder();
     	boolean succ = snb.buildSocialNetwork(arguments.projectID);
     	
-    	if (succ)
-    		System.out.println("Social Network built!");
-    	else
+    	if (!succ){
     		System.out.println("Failure");
+    		return;
+		} else {
+			System.out.println("Social network for " + arguments.projectID +
+					" created.");
+		}
+    	
+    	//Now we compute the centrality.
+    	succ = snb.computeCentrality();
+    	if (!succ){
+    		System.out.println("Failure");
+    		return;
+    	}
+    	
+		System.out.println("Centralities for social network #" +
+				arguments.projectID + " computed.");
 	}
 }
