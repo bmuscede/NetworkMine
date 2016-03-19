@@ -7,8 +7,13 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import org.apache.spark.mllib.linalg.Vectors;
+import org.apache.spark.mllib.regression.LabeledPoint;
 
+import ca.uwaterloo.cs.cs846Boa.bmuscede.common.ModelManager;
+import ca.uwaterloo.cs.cs846Boa.bmuscede.network.Actor.ActorType;
 import edu.uci.ics.jung.algorithms.scoring.BetweennessCentrality;
 import edu.uci.ics.jung.algorithms.scoring.ClosenessCentrality;
 import edu.uci.ics.jung.algorithms.scoring.DegreeScorer;
@@ -96,6 +101,32 @@ public class SocialNetworkBuilder {
 		//Success.
 		return true;
 	}
+	
+	public void performRegression(){
+		//We compute centrality first.
+		if (scoreMap == null) computeCentrality();
+		
+		//First we transform our dataset.
+		List<LabeledPoint> metricEntry = new ArrayList<LabeledPoint>();
+		for (Actor act : network.getVertices()){
+			//We skip users and only look at files.
+			if (act.getType() == ActorType.USER) continue;
+		
+			//Now we get all the centrality metrics and set them as a features.
+			//TODO Several things. Add in normalization and set some sort of label.
+			Double[] centrality = scoreMap.get(act);
+			Double rand = Math.random();
+			if (rand < 0.5) rand = 0d; else rand = 1d;
+			metricEntry.add(new LabeledPoint
+					(Math.random(), 
+					Vectors.dense(centrality[0], centrality[1], centrality[2]))); 
+		}
+		
+		//Now that we have our labeled point setup, we pass it to Spark.
+		ModelManager manage = new ModelManager(60f, 100, "");
+		manage.performRegressionList(metricEntry);
+	}
+	
 	private Map<String, FileActor> 
 		buildLookupFiles(ArrayList<String[]> files) {
 		Map<String, FileActor> lookup = new HashMap<String, FileActor>();

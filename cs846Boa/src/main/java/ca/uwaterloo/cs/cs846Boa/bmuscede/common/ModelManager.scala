@@ -2,19 +2,19 @@ package ca.uwaterloo.cs.cs846Boa.bmuscede.common
 
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
+import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.mllib.classification.{SVMModel, SVMWithSGD}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
+import org.apache.spark.mllib.regression.LabeledPoint
+import scala.collection.JavaConversions.asScalaBuffer
 
-class ModelManager(filename: String, trainingSplit: Float = 60f, 
-    isSVM: Boolean = false, iterations: Integer = 100, save: String = "") {
-  val graphLoc = filename
-  val svm = isSVM
+class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100, save: String = "") {
   val split = trainingSplit
   val iter = iterations
   val saveLoc = save
   
-  def performRegression() = {
+  def performRegressionSVM(graphLoc : String) = {
     //Create the Spark context and conf
     val conf = new SparkConf().setAppName("Logical Regression: Model")
     val sc = new SparkContext(conf)
@@ -23,10 +23,30 @@ class ModelManager(filename: String, trainingSplit: Float = 60f,
     val svmFile = MLUtils
       .loadLibSVMFile(sc, graphLoc)
       .randomSplit(Array(trainingSplit, 100 - trainingSplit), seed = 11L)
-      
+    
+    //Now runs the regression program.
+    regressionRunner(sc, svmFile)
+  }
+  
+  def performRegressionList(input : java.util.List[LabeledPoint]) = {
+    val points = asScalaBuffer(input).toList
+    
+    //Create the Spark context and conf
+    val conf = new SparkConf().setAppName("Logical Regression: Model")
+    val sc = new SparkContext(conf)
+    
+    //Loads the labeled points.
+    val data = sc.parallelize(points)
+      .randomSplit(Array(trainingSplit, 100 - trainingSplit), 11L)
+    
+    //Now runs the regression program.
+    regressionRunner(sc, data);
+  }
+  
+  private def regressionRunner(sc: SparkContext, data : Array[RDD[LabeledPoint]]) = {
     //Now, computes the training and test RDDs.
-    val training = svmFile(0).cache()
-    val testing = svmFile(1)
+    val training = data(0).cache()
+    val testing = data(1)
     
     //Uses logical regression to compute the model.
     val model = SVMWithSGD.train(training, iter)
