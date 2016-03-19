@@ -16,7 +16,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100, save: 
   
   def performRegressionSVM(graphLoc : String) = {
     //Create the Spark context and conf
-    val conf = new SparkConf().setAppName("Logical Regression: Model")
+    val conf = new SparkConf()
+      .setAppName("Logical Regression: Model")
+      .setMaster("local")
     val sc = new SparkContext(conf)
     
     //Loads in LibSVM file, parses it and generates the training data.
@@ -32,7 +34,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100, save: 
     val points = asScalaBuffer(input).toList
     
     //Create the Spark context and conf
-    val conf = new SparkConf().setAppName("Logical Regression: Model")
+    val conf = new SparkConf()
+      .setAppName("Logical Regression: Model")
+      .setMaster("local")
     val sc = new SparkContext(conf)
     
     //Loads the labeled points.

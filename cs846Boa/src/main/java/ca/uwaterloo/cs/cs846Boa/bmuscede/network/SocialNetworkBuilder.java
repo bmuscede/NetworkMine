@@ -118,7 +118,7 @@ public class SocialNetworkBuilder {
 			Double rand = Math.random();
 			if (rand < 0.5) rand = 0d; else rand = 1d;
 			metricEntry.add(new LabeledPoint
-					(Math.random(), 
+					(rand, 
 					Vectors.dense(centrality[0], centrality[1], centrality[2]))); 
 		}
 		

@@ -47,5 +47,9 @@ public class SocialNetworkProg {
     	
 		System.out.println("Centralities for social network #" +
 				arguments.projectID + " computed.");
+		
+		snb.performRegression();
+		
+		System.out.println("Regression analysis complete.");
 	}
 }
