@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.commons.collections15.Transformer;
 import org.apache.spark.mllib.linalg.Vectors;
 import org.apache.spark.mllib.regression.LabeledPoint;
 
@@ -78,11 +80,19 @@ public class SocialNetworkBuilder {
 		//First, checks if we have a full graph.
 		if (network.getVertexCount() == 0) return false;
 		
+		//Builds a transformer to get edge weights.
+		Transformer<Commit, Integer> edgeWeights = 
+				new Transformer<Commit, Integer>() {
+			public Integer transform(Commit curCommit){
+				return curCommit.getWeight();
+			}
+		};
+
 		//Develops the network scoring systems.
 		BetweennessCentrality<Actor, Commit> betweenCompute = 
-				new BetweennessCentrality<Actor, Commit>(network);
+				new BetweennessCentrality<Actor, Commit>(network, edgeWeights);
 		ClosenessCentrality<Actor, Commit> closeCompute =
-				new ClosenessCentrality<Actor, Commit>(network);
+				new ClosenessCentrality<Actor, Commit>(network, edgeWeights);
 		DegreeScorer<Actor> degreeCompute = 
 				new DegreeScorer<Actor>(network);
 		
@@ -128,7 +138,7 @@ public class SocialNetworkBuilder {
 		}
 		
 		//Now that we have our labeled point setup, we pass it to Spark.
-		ModelManager manage = new ModelManager(60f, 100, "");
+		ModelManager manage = new ModelManager(60f, 100, "model_output", "test_output");
 		manage.performRegressionList(metricEntry);
 	}
 	

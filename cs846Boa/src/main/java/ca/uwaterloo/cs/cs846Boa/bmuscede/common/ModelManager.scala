@@ -9,10 +9,12 @@ import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.regression.LabeledPoint
 import scala.collection.JavaConversions.asScalaBuffer
 
-class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100, save: String = "") {
+class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100, mSave: String = "",
+    tSave: String = "") {
   val split = trainingSplit
   val iter = iterations
-  val saveLoc = save
+  val modelSaveLoc = mSave
+  val testSaveLoc = tSave
   
   def performRegressionSVM(graphLoc : String) = {
     //Create the Spark context and conf
@@ -61,12 +63,11 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100, save: 
     val scores = testing.map(svmPoint => {
        val score = model.predict(svmPoint.features)
        
-       System.out.println("(" + score + ", " + svmPoint.label + ")");
        (score, svmPoint.label)
-    })
+    }).saveAsTextFile(testSaveLoc)
     
     //Saves the model.
-    if (saveLoc != "")
-      model.save(sc, saveLoc) 
+    if (modelSaveLoc != "")
+      model.save(sc, modelSaveLoc) 
   }
 }
