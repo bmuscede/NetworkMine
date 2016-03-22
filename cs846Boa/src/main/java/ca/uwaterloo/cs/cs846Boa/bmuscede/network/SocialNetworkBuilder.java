@@ -29,8 +29,49 @@ public class SocialNetworkBuilder {
 	Map<Actor, Double[]> scoreMap = null;
 	
 	//Final variables.
-	private final String DB_LOC = "data/boa.db";
-	private final int TIMEOUT = 30;
+	private final static String DB_LOC = "data/boa.db";
+	private final static int TIMEOUT = 30;
+	private final int NUM_REGRESS_ITER = 100;
+	
+
+	public static void runRegressionOnAll(String output, int iterations) {
+		//Creates an instance of the social network builder.
+		SocialNetworkBuilder snb = new SocialNetworkBuilder();
+		
+		//Pulls a list of all projects from the database.
+		String sql = "SELECT ProjectID FROM Project;";
+		
+		Connection conn = null;
+		Statement state = null;
+		ArrayList<String> results = new ArrayList<String>();
+	    try {
+	    	conn = DriverManager.getConnection("jdbc:sqlite:" + DB_LOC);
+	    	state = conn.createStatement();
+			state.setQueryTimeout(TIMEOUT);
+			
+			//Runs the query to get all project IDs
+			ResultSet rs = state.executeQuery(sql);
+			while (rs.next()){
+				results.add(rs.getString("ProjectID"));
+			}
+		    conn.close();
+	    } catch (SQLException e){
+	    	e.printStackTrace();
+	    	return;
+	    }
+	    
+	    //Next, we iterate through all the IDs and run our program on it.
+	    for (String ID : results){
+	    	snb.buildSocialNetwork(ID);
+	    	System.out.println("Social network built for project #" + ID);
+	    	
+	    	snb.computeCentrality();
+	    	System.out.println("Centrality computed for project #" + ID);
+	    	
+	    	snb.performRegression(output + "_" + ID, iterations);
+	    	System.out.println("Regression performed.");
+	    }
+	}
 	
 	public SocialNetworkBuilder(){
 		//Initializes the graph.
@@ -112,7 +153,7 @@ public class SocialNetworkBuilder {
 		return true;
 	}
 	
-	public void performRegression(){
+	public void performRegression(String output, int iterations){
 		//We compute centrality first.
 		if (scoreMap == null) computeCentrality();
 		
@@ -129,7 +170,7 @@ public class SocialNetworkBuilder {
 			//Get the label.
 			FileActor file = (FileActor) act;
 			double bugProportion = (double) file.getBugFixes() / file.getCommits();
-			int label = (bugProportion > 0.5) ? 1 : 0;
+			int label = (bugProportion > 0.2) ? 1 : 0;
 			
 			//Adds the feature.
 			metricEntry.add(new LabeledPoint
@@ -138,8 +179,10 @@ public class SocialNetworkBuilder {
 		}
 		
 		//Now that we have our labeled point setup, we pass it to Spark.
-		ModelManager manage = new ModelManager(60f, 100, "model_output", "test_output");
-		manage.performRegressionList(metricEntry);
+		ModelManager manage = new ModelManager(60f, NUM_REGRESS_ITER);
+		manage.runIterations(metricEntry, output,  iterations);
+		System.out.println("Total Precision: " + manage.getPrecision());
+		System.out.println("Total Recall: " + manage.getRecall());
 	}
 	
 	private Map<String, FileActor> 

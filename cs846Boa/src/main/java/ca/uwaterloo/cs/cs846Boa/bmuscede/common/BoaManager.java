@@ -58,10 +58,11 @@ public class BoaManager {
 	 * @throws BoaException
 	 * @throws JobErrorException 
 	 */
-	public String runQueryBlocking(String boaQuery) throws BoaException, 
+	public String runQueryBlocking(String boaQuery, String dataset)
+			throws BoaException, 
 		JobErrorException {
 		//First, submit the job.
-		JobHandle curJob = submitJob(boaQuery);
+		JobHandle curJob = submitJob(boaQuery, dataset);
 		
 		//Now we run the job.
 		boolean jobRunning = true;
@@ -96,9 +97,9 @@ public class BoaManager {
 	 * @return The job ID for the query.
 	 * @throws BoaException
 	 */
-	public int runQuery(String boaQuery) throws BoaException {
+	public int runQuery(String boaQuery, String dataset) throws BoaException {
 		//First, submit the job.
-		JobHandle curJob = submitJob(boaQuery);
+		JobHandle curJob = submitJob(boaQuery, dataset);
 		
 		//Add it to the HashMap
 		int ID = curJob.getId();
@@ -148,15 +149,25 @@ public class BoaManager {
 	 * @return The job handle of the job.
 	 * @throws BoaException
 	 */
-	private JobHandle submitJob(String boaQuery) throws BoaException{
+	private JobHandle submitJob(String boaQuery, String dataset) 
+			throws BoaException{
+		//Gets the Input handler.
+		InputHandle data = client.getDataset(dataset);
+		
 		//Create the job handle.
 		JobHandle j = null;
 		try {
-			j = client.query(boaQuery);
+			if (data == null)
+				j = client.query(boaQuery);
+			else
+				j = client.query(boaQuery, data);
 		} catch (NotLoggedInException e){
 			//Try to log in and resubmit.
 			relogin();
-			j = client.query(boaQuery);
+			if (data == null)
+				j = client.query(boaQuery);
+			else
+				j = client.query(boaQuery, data);
 		}
 		
 		return j;

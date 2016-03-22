@@ -7,6 +7,7 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JButton;
 import java.awt.event.ActionListener;
+import java.util.ArrayList;
 import java.awt.event.ActionEvent;
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
@@ -100,6 +101,7 @@ public class BoaProg implements FinishedCallback {
 	/**
 	 * Initialize the contents of the frame.
 	 */
+	@SuppressWarnings({ "rawtypes", "unchecked" })
 	private void initialize(String username) {
 		frmBoaMiner = new JFrame();
 		frmBoaMiner.setResizable(false);
@@ -205,7 +207,8 @@ public class BoaProg implements FinishedCallback {
 				}
 				
 				//We now run our program to mine.
-				contribution.buildContributionNetwork(window, ids);
+				contribution.buildContributionNetwork(window, ids,
+						(String) cmbDataset.getSelectedItem());
 			}
 		});
 		btnBuild.setBounds(348, 176, 170, 45);
@@ -225,8 +228,12 @@ public class BoaProg implements FinishedCallback {
 		frmBoaMiner.getContentPane().add(lblDataset);
 		
 		//We pull the dataset information.
-		String[] datasets  = contribution.getDatasets();
-		cmbDataset = new JComboBox<String>(datasets);
+		ArrayList<String> datasets = new ArrayList<String>();
+		String[] raw = contribution.getDatasets();
+		for (String item : raw)
+			if (!item.contains("SF")) datasets.add(item);
+		
+		cmbDataset = new JComboBox(datasets.toArray());
 		cmbDataset.setBounds(142, 16, 376, 26);
 		frmBoaMiner.getContentPane().add(cmbDataset);
 		

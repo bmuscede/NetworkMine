@@ -68,7 +68,7 @@ public class ContributionBuilder extends Thread {
 		return manager.getDatasets();
 	}
 	
-	public boolean buildContributionNetwork(FinishedCallback cb, String[] ids){
+	public boolean buildContributionNetwork(FinishedCallback cb, String[] ids, String dataset){
 		if (manager == null) return false;
 		if (ids == null || ids.length == 0) return false;
 		
@@ -76,7 +76,7 @@ public class ContributionBuilder extends Thread {
 		Thread builder = new Thread(){
 			public void run(){
 				try {
-					startConstruction(cb, ids);
+					startConstruction(cb, ids, dataset);
 				} catch (SQLException e) {
 					cb.onNetworkFinish(false);
 				}
@@ -95,7 +95,7 @@ public class ContributionBuilder extends Thread {
 		//We run a thread that gets all projects of a particular size.
 		Thread builder = new Thread(){
 			public void run(){
-				findProjects(cb, contrib, files);
+				findProjects(cb, contrib, files, dataset);
 			}
 		};
 		
@@ -105,11 +105,13 @@ public class ContributionBuilder extends Thread {
 	}
 	
 	public String[] collectProjects() throws Exception{
-		if (projects == null) throw new Exception("No project query has been run yet.");
+		if (projects == null) 
+			throw new Exception("No project query has been run yet.");
 		return projects;
 	}
 	
-	private void findProjects(FinishedCallback cb, int contrib, int files){
+	private void findProjects(FinishedCallback cb, int contrib, int files,
+			String dataset){
 		//First, we load in the find project query.
 		String query = loadQuery(FIND_PROJ);
 		if (query == null){
@@ -122,7 +124,7 @@ public class ContributionBuilder extends Thread {
 		//We now run the query.
 		String output = "";
 		try {
-			output = manager.runQueryBlocking(query);
+			output = manager.runQueryBlocking(query, dataset);
 		} catch (BoaException | JobErrorException e) {
 			cb.onProjectFindFinish(false);
 			return;
@@ -137,7 +139,8 @@ public class ContributionBuilder extends Thread {
 		cb.onProjectFindFinish(true);
 	}
 	
-	private void startConstruction(FinishedCallback cb, String[] ids) throws SQLException{
+	private void startConstruction(FinishedCallback cb, String[] ids, String dataset) 
+			throws SQLException{
 		//Set the database file up.
 		Connection conn = initializeDB();
 	    
@@ -152,21 +155,21 @@ public class ContributionBuilder extends Thread {
 			
 			//Gets the files in the project.
 			cb.informCurrentMine(ids[i], Stage.FILES, i + 1, ids.length * 4);
-			if (!runFiles(ids[i], conn)) {
+			if (!runFiles(ids[i], conn, dataset)) {
 				conn.close();
 				cb.onNetworkFinish(false);
 			}
 			
 			//Gets the contributors.
 			cb.informCurrentMine(ids[i], Stage.CONTRIB, i + 2, ids.length * 4);
-			if (!runContributors(ids[i], conn)) {
+			if (!runContributors(ids[i], conn, dataset)) {
 				conn.close();
 				cb.onNetworkFinish(false);
 			}
 			
 			//Gets all the commits.
 			cb.informCurrentMine(ids[i], Stage.COMMIT, i + 3, ids.length * 4);
-			if (!runCommits(ids[i], conn)) {
+			if (!runCommits(ids[i], conn, dataset)) {
 				conn.close();
 				cb.onNetworkFinish(false);
 			}
@@ -232,7 +235,7 @@ public class ContributionBuilder extends Thread {
 		return true;
 	}
 
-	private boolean runContributors(String ID, Connection conn) {
+	private boolean runContributors(String ID, Connection conn, String dataset) {
 		//Now we load in the contribution file.
 		String query = loadQuery(CONTRIB);
 		if (query == null){ 
@@ -243,7 +246,7 @@ public class ContributionBuilder extends Thread {
 		//Runs the contributions query.
 		String output = "";
 		try {
-			output = manager.runQueryBlocking(query);
+			output = manager.runQueryBlocking(query, dataset);
 		} catch (BoaException | JobErrorException e) {
 			return false;
 		}
@@ -290,7 +293,7 @@ public class ContributionBuilder extends Thread {
 		return true;
 	}
 
-	private boolean runFiles(String ID, Connection conn) {
+	private boolean runFiles(String ID, Connection conn, String dataset) {
 		//Now we load in the contribution file.
 		String query = loadQuery(FILES);
 		if (query == null){ 
@@ -301,7 +304,7 @@ public class ContributionBuilder extends Thread {
 		//Runs the contributions query.
 		String output = "";
 		try {
-			output = manager.runQueryBlocking(query);
+			output = manager.runQueryBlocking(query, dataset);
 		} catch (BoaException | JobErrorException e) {
 			return false;
 		}
@@ -380,7 +383,7 @@ public class ContributionBuilder extends Thread {
 		return true;
 	}
 
-	private boolean runCommits(String ID, Connection conn){
+	private boolean runCommits(String ID, Connection conn, String dataset){
 		//Now we load in the contribution file.
 		String query = loadQuery(COMMITS);
 		if (query == null){ 
@@ -391,7 +394,7 @@ public class ContributionBuilder extends Thread {
 		//Runs the contributions query.
 		String output = "";
 		try {
-			output = manager.runQueryBlocking(query);
+			output = manager.runQueryBlocking(query, dataset);
 		} catch (BoaException | JobErrorException e) {
 			return false;
 		}
