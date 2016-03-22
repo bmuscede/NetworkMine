@@ -8,7 +8,10 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
 import edu.iastate.cs.boa.BoaException;
 import edu.iastate.cs.boa.LoginException;
 
@@ -37,6 +40,9 @@ public class ContributionBuilder extends Thread {
 	private final String CONTRIB_PLACEHOLDER = "<C_PLACEHOLDER>";
 	private final String PLACEHOLDER = "<PLACEHOLDER>";
 	private final String PREFIX = "out[] = ";
+	private final String BUGS_N = "bugs[";
+	private final String COMMITS_N = "commits[";
+	private final String F_SPLIT_CONF = "] = ";
 	
 	private final String FIND_PROJ = "./scripts/find_projects.boa";
 	private final String FILES = "./scripts/list_files.boa";
@@ -301,7 +307,6 @@ public class ContributionBuilder extends Thread {
 		}
 		
 		//Parses and saves the output.
-		output = output.replace(PREFIX, "");
 		if (!saveFiles(output.split("\n"), ID, conn))
 				return false;
 		
@@ -309,6 +314,47 @@ public class ContributionBuilder extends Thread {
 	}
 
 	private boolean saveFiles(String[] split, String ID, Connection conn) {
+		//Builds new hashmaps to store values.
+		Map<String, Integer> bugs = new HashMap<String, Integer>();
+		Map<String, Integer> commits = new HashMap<String, Integer>();
+		
+		//We need to specially parse this output.
+		for (String entry : split){
+			if (entry.startsWith(BUGS_N)){
+				//Removes keyword.
+				entry = entry.replace(BUGS_N, "");
+				String[] values = entry.split(F_SPLIT_CONF);
+				
+				//Adds into the bugs map.
+				bugs.put(values[0], Integer.parseInt(values[1]));
+			} else {
+				//Removes keyword.
+				entry = entry.replace(COMMITS_N, "");
+				String[] values = entry.split(F_SPLIT_CONF);
+				
+				//Adds into the bugs map.
+				commits.put(values[0], Integer.parseInt(values[1]));
+			}
+		}
+		
+		//Now, we build the query statements.
+		String values = "";
+		for (Map.Entry<String, Integer> entry : commits.entrySet()){
+			values += "(\"" + ID + "\",\"" + entry.getKey() + "\"," +
+					entry.getValue() + ",";
+			
+			//Adds in the number of bugs.
+			if (bugs.containsKey(entry.getKey())){
+				values += bugs.get(entry.getKey());
+			} else {
+				values += "0";
+			}
+			
+			//Finishes off the end statement.
+			values += "),";
+		}
+		values = values.substring(0, values.length() - 1) + ";";
+		
 		//Prepares query executor.
 		Statement state;
 		try {
@@ -321,10 +367,7 @@ public class ContributionBuilder extends Thread {
 		
 		//Iterates through each of the files to build the SQL.
 		String sql = "INSERT INTO File VALUES";
-		for (String entry : split){
-			sql += "(\"" + ID + "\",\"" + entry + "\"),";
-		}
-		sql = sql.substring(0, sql.length() - 1) + ";";
+		sql += values;
 		
 		//Runs the query.
 		try {

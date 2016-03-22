@@ -61,11 +61,12 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100, save: 
     val scores = testing.map(svmPoint => {
        val score = model.predict(svmPoint.features)
        
+       System.out.println("(" + score + ", " + svmPoint.label + ")");
        (score, svmPoint.label)
     })
     
     //Saves the model.
     if (saveLoc != "")
-      model.save(sc, saveLoc)
+      model.save(sc, saveLoc) 
   }
 }

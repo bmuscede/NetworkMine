@@ -115,10 +115,15 @@ public class SocialNetworkBuilder {
 			//Now we get all the centrality metrics and set them as a features.
 			//TODO Several things. Add in normalization and set some sort of label.
 			Double[] centrality = scoreMap.get(act);
-			Double rand = Math.random();
-			if (rand < 0.5) rand = 0d; else rand = 1d;
+			
+			//Get the label.
+			FileActor file = (FileActor) act;
+			double bugProportion = (double) file.getBugFixes() / file.getCommits();
+			int label = (bugProportion > 0.5) ? 1 : 0;
+			
+			//Adds the feature.
 			metricEntry.add(new LabeledPoint
-					(rand, 
+					(label, 
 					Vectors.dense(centrality[0], centrality[1], centrality[2]))); 
 		}
 		
@@ -134,7 +139,7 @@ public class SocialNetworkBuilder {
 		//Iterates through all the files.
 		for (int i = 0; i < files.size(); i++){
 			String[] items = files.get(i);
-			FileActor file = new FileActor(items[0]);
+			FileActor file = new FileActor(items[0], items[1], items[2]);
 			
 			//Adds the files to the lookup table.
 			lookup.put(items[0], file);
@@ -187,7 +192,9 @@ public class SocialNetworkBuilder {
 			
 			//We iterate through the results.
 			while (rs.next()){
-				results.add(new String[]{rs.getString("FilePath")});
+				results.add(new String[]{rs.getString("FilePath"),
+						rs.getString("Commits"),
+						rs.getString("BugFixes")});
 			}
 		} catch (SQLException e) {
 			e.printStackTrace();
