@@ -23,7 +23,9 @@ CREATE TABLE BelongsTo(
 	
 CREATE TABLE File(
 	ProjectID VARCHAR NOT NULL,
-	FilePath VARCHAR,
+	FilePath VARCHAR NOT NULL,
+	Commits INT,
+	BugFixes INT,
 	PRIMARY KEY(ProjectID, FilePath),
 	FOREIGN KEY(ProjectID)
 		REFERENCES Project(ProjectID)

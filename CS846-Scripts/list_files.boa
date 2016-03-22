@@ -9,9 +9,10 @@
 
 # Starts by creating input and output variables.
 currProject: Project = input;
-out: output collection of string;
 
-files: map[string] of bool;
+# Files
+bugs: output sum[string] of int;
+commits: output sum[string] of int;
 
 # Use the visitor pattern to visit each of the projects.
 visit(currProject, visitor { 
@@ -20,11 +21,21 @@ visit(currProject, visitor {
 		if (proj.id != "<PLACEHOLDER>") stop;
 	}
 	
-	# Goes through all the stored revisions.	
-	before file: ChangedFile -> {
-		if (!haskey(files, file.name)){
-			out << format("%s", file.name);
-			files[file.name] = true;
-		}
+	# Goes through the revisions.
+	before rev: Revision -> {
+		rFlag : bool = isfixingrevision(rev);
+		
+		# From this goes through all the files.
+		visit(rev, visitor {
+			before file: ChangedFile -> {
+				# Sets the number of bugs.
+				if (rFlag){
+					bugs[file.name] << 1;
+				}
+				
+				# Sets the number of commits
+				commits[file.name] << 1;
+			}
+		});
 	}
 });
