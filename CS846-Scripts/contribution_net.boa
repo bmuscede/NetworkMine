@@ -1,0 +1,60 @@
+####################################################
+# contribution_net.boa
+#
+# For some selected project, outputs the files,
+# contributors, and number of total fixes and bug
+# fixes for each user pair.
+#
+# Author: Bryan & Rafi
+####################################################
+
+# Sets project variables.
+p: Project = input ;
+fixingRevision : bool = false;
+author : string;
+userChecked : map[string] of bool;
+
+# Outputs the number of bug fixes and total commits for each user/file pair.
+bugUserFile: output sum[string][string] of int; 
+commitUserFile: output sum[string][string] of int; 
+bugFile: output sum[string] of int;
+commitFile: output sum[string] of int;
+userInfo: output collection of string;
+
+# Traverse through the project stream and 
+visit(p, visitor{
+    # Ensure we only visit the project we want.
+    before proj : Project -> {
+        if (proj.id != "<PLACEHOLDER>") stop;
+    }
+    
+    # Visit each "commit" and update counters.
+    before rev : Revision -> {
+        fixingRevision = isfixingrevision(rev);
+        author = rev.author.username;
+        
+        # Checks if we've already logged the author data.
+        if (!haskey(userChecked, author)){
+        	userChecked[author] = true;
+        	
+        	# Writes out the user data.
+        	userInfo << format("%s,%s,%s", rev.author.username,
+				rev.author.email, rev.author.real_name);
+        }
+        
+        # Now we visit each of the files in the commit.
+        visit(rev, visitor {
+            before file : ChangedFile -> {
+                # Update the bug counters.
+                if (fixingRevision) {
+                    bugUserFile[author][file.name] << 1;
+                    bugFile[file.name] << 1;
+                }
+                
+                # Update the commit counters.
+                commitUserFile[author][file.name] << 1;
+                commitFile[file.name] << 1;
+            }
+        });
+    }
+});
