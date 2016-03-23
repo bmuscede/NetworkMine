@@ -8,31 +8,17 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import edu.iastate.cs.boa.BoaException;
 import edu.iastate.cs.boa.LoginException;
 
-public class ContributionBuilder extends Thread {
-	public enum Stage {
-		PROJECT("Parsing project information."),
-		FILES("Getting files in the project."),
-		CONTRIB("Getting project contributors."),
-		COMMIT("Getting commit information.");
-		
-		private String info;
-		Stage(String describe){
-			info = describe;
-		}
-
-		public String getName() {
-			return info;
-		}
-	}
-
-	
+public class ContributionBuilder extends Thread implements FinishedQuery {
 	private BoaManager manager;
 	private String[] projects = null;
 	
@@ -40,17 +26,21 @@ public class ContributionBuilder extends Thread {
 	private final String CONTRIB_PLACEHOLDER = "<C_PLACEHOLDER>";
 	private final String PLACEHOLDER = "<PLACEHOLDER>";
 	private final String PREFIX = "out[] = ";
-	private final String BUGS_N = "bugs[";
-	private final String COMMITS_N = "commits[";
-	private final String F_SPLIT_CONF = "] = ";
+	private final String SPLIT_DIV = "] = ";
+	
+	private final String COMMIT_FILE_PREFIX = "commitUserFile";
+	private final String BUG_PREFIX = "bugs";
+	private final String COMMIT_PREFIX = "commits";
+	private final String USER_PREFIX = "userInfo";
 	
 	private final String FIND_PROJ = "./scripts/find_projects.boa";
-	private final String FILES = "./scripts/list_files.boa";
-	private final String CONTRIB = "./scripts/list_contributors.boa";
-	private final String COMMITS = "./scripts/contributions.boa";
+	private final String NETWORK = "./scripts/contribution_net.boa";
 	
 	private final String DB_LOC = "data/boa.db";
 	private final int TIMEOUT = 30;
+	private final int CHECK_TIME = 1000;
+	private AtomicInteger counter;
+	private AtomicBoolean failureFlag;
 	
 	public ContributionBuilder(){}
 	
@@ -141,42 +131,66 @@ public class ContributionBuilder extends Thread {
 	
 	private void startConstruction(FinishedCallback cb, String[] ids, String dataset) 
 			throws SQLException{
-		//Set the database file up.
-		Connection conn = initializeDB();
+		int numSubmitted = 0;
+		counter = new AtomicInteger(0);
+		failureFlag = new AtomicBoolean(false);
 	    
-		//Iterate through all the supplied IDs.
+		//We iterate through all the supplied IDs.
 		for (int i = 0; i < ids.length; i++){			
-			//Stores the project information.
-			cb.informCurrentMine(ids[i], Stage.PROJECT, i, ids.length * 4);
-			if (!storeProject(ids[i], conn)) {
-				conn.close();
+			//Submits the job for the current project.
+			if (!runProjectMine(ids[i], dataset)) {
 				cb.onNetworkFinish(false);
+				failureFlag.set(true);
+				return;
 			}
 			
-			//Gets the files in the project.
-			cb.informCurrentMine(ids[i], Stage.FILES, i + 1, ids.length * 4);
-			if (!runFiles(ids[i], conn, dataset)) {
-				conn.close();
-				cb.onNetworkFinish(false);
-			}
-			
-			//Gets the contributors.
-			cb.informCurrentMine(ids[i], Stage.CONTRIB, i + 2, ids.length * 4);
-			if (!runContributors(ids[i], conn, dataset)) {
-				conn.close();
-				cb.onNetworkFinish(false);
-			}
-			
-			//Gets all the commits.
-			cb.informCurrentMine(ids[i], Stage.COMMIT, i + 3, ids.length * 4);
-			if (!runCommits(ids[i], conn, dataset)) {
-				conn.close();
-				cb.onNetworkFinish(false);
-			}
+			//Increments number of submitted.
+			numSubmitted++;
 		}
 		
-		conn.close();
+		//Waits until all the projects are dealt with.
+		boolean block = true;
+		while(block){
+			//Updates number of completed projects.
+			cb.informCurrentMine(counter.get(), ids.length);
+			
+			//Checks if we can halt.
+			if (numSubmitted != counter.get()){
+				try {
+					Thread.sleep(CHECK_TIME);
+				} catch (InterruptedException e) {
+					failureFlag.set(true);
+					cb.onNetworkFinish(false);
+					return;
+				}
+			} else if (failureFlag.get()) {
+				cb.onNetworkFinish(false);
+				return;
+			} else {
+				block = false;
+			}
+		}
+
+		//Notifies of success.
 		cb.onNetworkFinish(true);
+	}
+
+	private boolean runProjectMine(String ID, String dataset) {
+		//Now we load in the contribution file.
+		String query = loadQuery(NETWORK);
+		if (query == null){ 
+			return false;
+		}
+		query = query.replace(PLACEHOLDER, ID);
+		
+		//Submit the job async.
+		try {
+			manager.runQueryAsync(ID, query, dataset, this);
+		} catch (BoaException e) {
+			return false;
+		}
+		
+		return true;
 	}
 
 	private Connection initializeDB() {	
@@ -235,33 +249,8 @@ public class ContributionBuilder extends Thread {
 		return true;
 	}
 
-	private boolean runContributors(String ID, Connection conn, String dataset) {
-		//Now we load in the contribution file.
-		String query = loadQuery(CONTRIB);
-		if (query == null){ 
-			return false;
-		}
-		query = query.replace(PLACEHOLDER, ID);
-		
-		//Runs the contributions query.
-		String output = "";
-		try {
-			output = manager.runQueryBlocking(query, dataset);
-		} catch (BoaException | JobErrorException e) {
-			return false;
-		}
-		
-		//Parses and saves the output.
-		output = output.replace(PREFIX, "");
-		if (!saveContributors(ID, output.split("\n"), conn))
-				return false;
-		
-		//Finally, we set success.
-		return true;
-	}
-
-	private boolean saveContributors(String ID,
-			String[] output, Connection conn) {
+	private boolean saveUsers(ArrayList<String> users,
+			String ID, Connection conn) {
 		//Set up the query parser.
 		Statement state;
 		try {
@@ -275,65 +264,41 @@ public class ContributionBuilder extends Thread {
 		//For each file we build our own insert method.
 		String sql, sqlOther;
 		String[] values;
-		for (String user : output){
+		for (String user : users){
+			user = user.replace(USER_PREFIX + "[] = ", "");
 			values = user.split(",");
 			sql = "INSERT INTO User VALUES(\"" + values[0] + "\",\"" +
 					values[1] + "\",\"" + values[2] + "\");";
 			sqlOther = "INSERT INTO BelongsTo VALUES(\"" + values[0] + "\",\"" +
-					ID + "\");";
+					users + "\");";
 			try {
 				state.executeUpdate(sql);
 				state.executeUpdate(sqlOther);
 			} catch (SQLException e) {
 				e.printStackTrace();
-				if (!e.getMessage().contains("UNIQUE"))
-					return false;
 			}
 		}
 		return true;
 	}
 
-	private boolean runFiles(String ID, Connection conn, String dataset) {
-		//Now we load in the contribution file.
-		String query = loadQuery(FILES);
-		if (query == null){ 
-			return false;
-		}
-		query = query.replace(PLACEHOLDER, ID);
-		
-		//Runs the contributions query.
-		String output = "";
-		try {
-			output = manager.runQueryBlocking(query, dataset);
-		} catch (BoaException | JobErrorException e) {
-			return false;
-		}
-		
-		//Parses and saves the output.
-		if (!saveFiles(output.split("\n"), ID, conn))
-				return false;
-		
-		return true;
-	}
-
-	private boolean saveFiles(String[] split, String ID, Connection conn) {
+	private boolean saveFiles(ArrayList<String> files, String ID, Connection conn) {
 		//Builds new hashmaps to store values.
 		Map<String, Integer> bugs = new HashMap<String, Integer>();
 		Map<String, Integer> commits = new HashMap<String, Integer>();
 		
 		//We need to specially parse this output.
-		for (String entry : split){
-			if (entry.startsWith(BUGS_N)){
+		for (String entry : files){
+			if (entry.startsWith(BUG_PREFIX)){
 				//Removes keyword.
-				entry = entry.replace(BUGS_N, "");
-				String[] values = entry.split(F_SPLIT_CONF);
+				entry = entry.replace(BUG_PREFIX + "[", "");
+				String[] values = entry.split(SPLIT_DIV);
 				
 				//Adds into the bugs map.
 				bugs.put(values[0], Integer.parseInt(values[1]));
 			} else {
 				//Removes keyword.
-				entry = entry.replace(COMMITS_N, "");
-				String[] values = entry.split(F_SPLIT_CONF);
+				entry = entry.replace(COMMIT_PREFIX + "[", "");
+				String[] values = entry.split(SPLIT_DIV);
 				
 				//Adds into the bugs map.
 				commits.put(values[0], Integer.parseInt(values[1]));
@@ -383,32 +348,7 @@ public class ContributionBuilder extends Thread {
 		return true;
 	}
 
-	private boolean runCommits(String ID, Connection conn, String dataset){
-		//Now we load in the contribution file.
-		String query = loadQuery(COMMITS);
-		if (query == null){ 
-			return false;
-		}
-		query = query.replace(PLACEHOLDER, ID);
-		
-		//Runs the contributions query.
-		String output = "";
-		try {
-			output = manager.runQueryBlocking(query, dataset);
-		} catch (BoaException | JobErrorException e) {
-			return false;
-		}
-		
-		//Parses and saves the output.
-		output = output.replace(PREFIX, "");
-		if (!saveCommits(output.split("\n"), ID, conn))
-				return false;
-		
-		//Finally, we set success.
-		return true;
-	}
-
-	private boolean saveCommits(String[] output, String ID, Connection conn) {
+	private boolean saveCommits(ArrayList<String> commits, String ID, Connection conn) {
 		//Prepares query executor.
 		Statement state;
 		try {
@@ -421,11 +361,13 @@ public class ContributionBuilder extends Thread {
 		
 		//Goes through the output.
 		String sql = "INSERT INTO CommitData VALUES";
-		String[] values;
-		for (String entry : output){
-			values = entry.split(",");
-			sql += "(\"" + ID + "\",\"" + values[0] + "\",\"" + values[1] + 
-					"\",\"" + values[2] + "\"),";
+		String[] valOne, valTwo;
+		for (String entry : commits){
+			entry = entry.replace(COMMIT_FILE_PREFIX + "[", "");
+			valOne = entry.split("]\\[");
+			valTwo = valOne[1].split("] = ");
+			sql += "(\"" + ID + "\",\"" + valOne[0] + "\",\"" + valTwo[0] + 
+					"\",\"" + valTwo[1] + "\"),";
 		}
 		sql = sql.substring(0, sql.length() - 1) + ";";
 		
@@ -457,5 +399,70 @@ public class ContributionBuilder extends Thread {
 		}
 		
 		return output;
+	}
+
+	@Override
+	public void finishedQuery(String ID, String results) {
+		//First, check for failure.
+		if (failureFlag.get()) return;
+		
+		//States that the data was received.
+		
+		//Set the database file up.
+		Connection conn = initializeDB();
+		
+		//Stores the current project.
+		if (!storeProject(ID, conn)) {
+			fail(ID);
+			failureFlag.set(true);
+			return;
+		}
+		
+		//Next, we divide the output.
+		ArrayList<String> files = new ArrayList<String>();
+		ArrayList<String> users = new ArrayList<String>();
+		ArrayList<String> commits = new ArrayList<String>();
+		for (String line : results.split("\n")){
+			//Sees if we're dealing with file data.
+			if (line.startsWith(COMMIT_PREFIX) || 
+					line.startsWith(BUG_PREFIX)){
+				files.add(line);
+			} else if (line.startsWith(USER_PREFIX)){
+				users.add(line);
+			} else {
+				commits.add(line);
+			}
+		}
+		
+		//Now, we write all this data to the database.
+		if (!saveFiles(files, ID, conn)){
+			fail(ID);
+			failureFlag.set(true);
+			return;
+		}
+		if (!saveUsers(users, ID, conn)){
+			fail(ID);
+			failureFlag.set(true);
+			return;
+		}
+		if (!saveCommits(commits, ID, conn)){
+			fail(ID);
+			failureFlag.set(true);
+			return;
+		}
+		
+		//Once done, we increment our number of finished queries.
+		try {
+			conn.close();
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+		counter.incrementAndGet();
+	}
+
+	@Override
+	public void fail(String ID) {
+		//Changes the failure flag.
+		failureFlag.set(true);
 	}
 }

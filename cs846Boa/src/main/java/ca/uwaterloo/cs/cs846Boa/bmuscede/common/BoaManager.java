@@ -13,7 +13,7 @@ import edu.iastate.cs.boa.*;
  * 
  * @author Bryan & Rafi
  */
-public class BoaManager {
+public class BoaManager extends Thread {
 	private BoaClient client;
 	private Map<Integer, JobHandle> runningJobs;
 	private String username, password;
@@ -106,6 +106,33 @@ public class BoaManager {
 		runningJobs.put(ID, curJob);
 		
 		return ID;
+	}
+	
+	/**
+	 * Runs the query but asynchronously in a new thread.
+	 * Calls back the calling object.
+	 * @param boaQuery The query to run.
+	 * @param dataset The dataset to run on.
+	 * @param callback The method to "call back" the function when complete.
+	 * @throws BoaException
+	 */
+	public void runQueryAsync(String ID, String boaQuery, String dataset, 
+			FinishedQuery callback) throws BoaException {
+		//Starts a new thread.
+		Thread builder = new Thread(){
+			public void run(){
+				try {
+					//Runs the query but blocking.
+					callback.finishedQuery(ID,
+							runQueryBlocking(boaQuery, dataset));
+				} catch (BoaException | JobErrorException e) {
+					callback.fail(ID);
+				}
+			}
+		};
+		
+		//Runs the thread.
+		builder.start();
 	}
 	
 	/**

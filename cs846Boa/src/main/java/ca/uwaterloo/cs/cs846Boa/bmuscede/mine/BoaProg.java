@@ -46,8 +46,7 @@ public class BoaProg implements FinishedCallback {
 			"<html><center>Getting projects "
 			+ "that have more than<br>NUM contributors and NUM files.</center></html>";
 	private final String SECOND_MESSAGE = 
-			"<html><center>Currently mining "
-			+ "contribution network for<br>project ID #NUM.</center></html>";
+			"<html><center>Running Boa jobs for selected projects.</center></html>";
 	private final String TITLE_TEXT = 
 			"Projects With More Than <NUM> Contributors and <NUM> Files";
 	private JLabel lblBottomMessage;
@@ -363,16 +362,14 @@ public class BoaProg implements FinishedCallback {
 	}
 
 	@Override
-	public void informCurrentMine(String project, ContributionBuilder.Stage stage,
-    		int currentPhase, int finalPhase) {
+	public void informCurrentMine(int currentPhase, int finalPhase) {
 		//Print the project being mined.
 		String mineTitle = SECOND_MESSAGE;
-		mineTitle = mineTitle.replace("NUM", project);
 		lblWait2.setText(mineTitle);
 		
 		//Prints the current phase.
 		lblBottomMessage.setVisible(true);
-		lblBottomMessage.setText(stage.getName());
+		lblBottomMessage.setText("Current Progress:");
 		
 		prgStatus.setMaximum(finalPhase);
 		prgStatus.setValue(currentPhase);
