@@ -1,5 +1,11 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.network;
 
+import org.apache.commons.math3.linear.RealMatrix;
+import org.apache.commons.math3.stat.correlation.*;
+import org.apache.commons.math3.stat.ranking.NaNStrategy;
+import org.apache.commons.math3.stat.ranking.NaturalRanking;
+import org.apache.commons.math3.stat.ranking.TiesStrategy;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -9,11 +15,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.apache.commons.collections15.Transformer;
 import org.apache.spark.mllib.linalg.Vectors;
 import org.apache.spark.mllib.regression.LabeledPoint;
-
 import ca.uwaterloo.cs.cs846Boa.bmuscede.common.ModelManager;
 import ca.uwaterloo.cs.cs846Boa.bmuscede.network.Actor.ActorType;
 import edu.uci.ics.jung.algorithms.scoring.BetweennessCentrality;
@@ -23,6 +27,33 @@ import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.graph.UndirectedSparseGraph;
 
 public class SocialNetworkBuilder {
+	private enum ColumnType{
+		COMMIT(0),
+		FAILURE(1),
+		BETWEEN(2),
+		CLOSE(3),
+		DEGREE(4);
+		
+		private int val;
+		
+		ColumnType(int num){
+			val = num;
+		}
+		
+		public int getVal(){
+			return val;
+		}
+		
+		public static ColumnType valueOf(int value) {
+		    for (ColumnType type : values()) {
+		        if (type.val == value) {
+		            return type;
+		        }
+		    }    
+		    throw new IllegalArgumentException(String.valueOf(value));
+		}
+	}
+	
 	private Graph<Actor, Commit> network;
 	
 	//Map to hold centrality.
@@ -31,6 +62,7 @@ public class SocialNetworkBuilder {
 	//Final variables.
 	private final static String DB_LOC = "data/boa.db";
 	private final static int TIMEOUT = 30;
+	private final int MAX_CORR = 5;
 	private final int NUM_REGRESS_ITER = 100;
 	
 
@@ -153,7 +185,7 @@ public class SocialNetworkBuilder {
 		return true;
 	}
 	
-	public void performRegression(String output, int iterations){
+	public double[][] performRegression(String output, int iterations){
 		//We compute centrality first.
 		if (scoreMap == null) computeCentrality();
 		
@@ -181,8 +213,89 @@ public class SocialNetworkBuilder {
 		//Now that we have our labeled point setup, we pass it to Spark.
 		ModelManager manage = new ModelManager(60f, NUM_REGRESS_ITER);
 		manage.runIterations(metricEntry, output,  iterations);
-		System.out.println("Total Precision: " + manage.getPrecision());
-		System.out.println("Total Recall: " + manage.getRecall());
+		
+		//Gets the precision and recall for each.
+		double[][] prResults = new double[2][iterations];
+		prResults[0] = manage.getPrecision();
+		prResults[1] = manage.getRecall();
+		
+		return prResults;
+	}
+	
+	public double[][] performSpearmanCorrelation(){
+		double[][] xCol, yCol;
+		double[][] correlation = new double[MAX_CORR][MAX_CORR];
+		
+		//We compute centrality first.
+		if (scoreMap == null) computeCentrality();
+		
+		//Calculate number of files.
+		int numFiles = 0;
+		for (Actor ac : network.getVertices())
+			if (ac instanceof FileActor) numFiles++;
+		
+		//Creates a generic SpearmansCorrelation object.
+		SpearmansCorrelation corr = new SpearmansCorrelation();
+		
+		//Populates all columns.
+		xCol = populateAll(numFiles);
+		yCol = populateAll(numFiles);
+		
+		//Performs correlation analysis.
+		for (int i = 0; i < MAX_CORR; i++){
+			for (int j = 0; j < MAX_CORR; j++){
+				//Performs Spearmans correlation.
+				correlation[i][j] = corr.correlation(xCol[i], yCol[j]);
+			}
+		}
+		
+		return correlation;
+	}
+	
+	private double[][] populateAll(int size){
+		double[][] columnVals = new double[MAX_CORR][size];
+		
+		//Populate the columns for all metrics.
+		for (int i = 0; i < MAX_CORR; i++){
+			columnVals[i] = populateColumn(size, ColumnType.valueOf(i));
+		}
+		
+		return columnVals;
+	}
+	
+	private double[] populateColumn(int size, ColumnType type){
+		double[] result = new double[size];
+		
+		//Goes through each of the files.
+		int i = 0;
+		for (Actor vertex : network.getVertices()){
+			if (vertex instanceof UserActor) continue;
+			FileActor file = (FileActor) vertex;
+			
+			//Sees how we want to fill up the column.
+			switch (type){
+				case COMMIT:
+					result[i] = file.getCommits();
+					break;
+				case FAILURE:
+					result[i] = file.getBugFixes();
+					break;
+				case BETWEEN:
+					result[i] = scoreMap.get(file)[0];
+					break;
+				case CLOSE:
+					result[i] = scoreMap.get(file)[1];
+					break;
+				case DEGREE:
+					result[i] = scoreMap.get(file)[2];
+					break;
+			}
+			
+			//Increments the counter
+			i++;
+		}
+		
+		return result;
 	}
 	
 	private Map<String, FileActor> 

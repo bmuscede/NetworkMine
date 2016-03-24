@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -38,8 +39,11 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 	
 	private final String DB_LOC = "data/boa.db";
 	private final int TIMEOUT = 30;
+	
+	private final int MAX = 5;
 	private final int CHECK_TIME = 1000;
 	private AtomicInteger counter;
+	private AtomicInteger runningCur;
 	private AtomicBoolean failureFlag;
 	
 	public ContributionBuilder(){}
@@ -65,11 +69,7 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 		//We run a thread that gets all contributors and their commits.
 		Thread builder = new Thread(){
 			public void run(){
-				try {
-					startConstruction(cb, ids, dataset);
-				} catch (SQLException e) {
-					cb.onNetworkFinish(false);
-				}
+				startConstructionBlocking(cb, ids, dataset);
 			}
 		};
 		
@@ -129,16 +129,43 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 		cb.onProjectFindFinish(true);
 	}
 	
-	private void startConstruction(FinishedCallback cb, String[] ids, String dataset) 
-			throws SQLException{
+	private void startConstructionBlocking(FinishedCallback cb, String[] ids,
+			String dataset){
+		counter = new AtomicInteger(0);
+		failureFlag = new AtomicBoolean(false);
+	    runningCur = new AtomicInteger(0);
+	    
+		//We iterate through all the supplied IDs.
+		for (int i = 0; i < ids.length; i++){
+			//Updates number of completed projects.
+			cb.informCurrentMine(i, ids.length);
+			
+			//Submits the job for the current project.
+			if (!runProjectMine(ids[i], dataset, true)) {
+				cb.onNetworkFinish(false);
+				failureFlag.set(true);
+				return;
+			}
+			
+			//Check failure flag.
+			if (failureFlag.get() == true) cb.onNetworkFinish(false);
+		}		
+			
+		//Notifies of success.
+		cb.onNetworkFinish(true);
+	}
+	
+	@SuppressWarnings("unused")
+	private void startConstruction(FinishedCallback cb, String[] ids, String dataset) {
 		int numSubmitted = 0;
 		counter = new AtomicInteger(0);
 		failureFlag = new AtomicBoolean(false);
+	    runningCur = new AtomicInteger(0);
 	    
 		//We iterate through all the supplied IDs.
 		for (int i = 0; i < ids.length; i++){			
 			//Submits the job for the current project.
-			if (!runProjectMine(ids[i], dataset)) {
+			if (!runProjectMine(ids[i], dataset, false)) {
 				cb.onNetworkFinish(false);
 				failureFlag.set(true);
 				return;
@@ -146,6 +173,26 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 			
 			//Increments number of submitted.
 			numSubmitted++;
+			runningCur.incrementAndGet();
+			
+			//Block if we've exceeded the number of running jobs.
+			boolean block = true;
+			while(block){
+				//Updates number of completed projects.
+				cb.informCurrentMine(counter.get(), ids.length);
+				
+				if (runningCur.get() == MAX){
+					try {
+						Thread.sleep(CHECK_TIME);
+					} catch (InterruptedException e) {
+						failureFlag.set(true);
+						cb.onNetworkFinish(false);
+						return;
+					}
+				} else {
+					block = false;
+				}
+			}
 		}
 		
 		//Waits until all the projects are dealt with.
@@ -175,7 +222,7 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 		cb.onNetworkFinish(true);
 	}
 
-	private boolean runProjectMine(String ID, String dataset) {
+	private boolean runProjectMine(String ID, String dataset, boolean blocking) {
 		//Now we load in the contribution file.
 		String query = loadQuery(NETWORK);
 		if (query == null){ 
@@ -185,8 +232,12 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 		
 		//Submit the job async.
 		try {
-			manager.runQueryAsync(ID, query, dataset, this);
-		} catch (BoaException e) {
+			if (blocking){
+				finishedQuery(ID, manager.runQueryBlocking(query, dataset));
+			} else {
+				manager.runQueryAsync(ID, query, dataset, this);
+			}
+		} catch (BoaException | JobErrorException e) {
 			return false;
 		}
 		
@@ -250,30 +301,32 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 	}
 
 	private boolean saveUsers(ArrayList<String> users,
-			String ID, Connection conn) {
-		//Set up the query parser.
-		Statement state;
-		try {
-			state = conn.createStatement();
-			state.setQueryTimeout(TIMEOUT);
-		} catch (SQLException e) {
-			e.printStackTrace();
-			return false;
-		}
-		
+			String ID, Connection conn) {		
 		//For each file we build our own insert method.
-		String sql, sqlOther;
 		String[] values;
 		for (String user : users){
 			user = user.replace(USER_PREFIX + "[] = ", "");
 			values = user.split(",");
-			sql = "INSERT INTO User VALUES(\"" + values[0] + "\",\"" +
-					values[1] + "\",\"" + values[2] + "\");";
-			sqlOther = "INSERT INTO BelongsTo VALUES(\"" + values[0] + "\",\"" +
-					users + "\");";
+			
+			//Set up the query parser.
+			PreparedStatement stateOne;
+			PreparedStatement stateTwo;
 			try {
-				state.executeUpdate(sql);
-				state.executeUpdate(sqlOther);
+				stateOne = conn.prepareStatement
+						("INSERT INTO User VALUES(?, ?, ?);");
+				stateTwo = conn.prepareStatement
+						("INSERT INTO BelongsTo VALUES(? , ?);");
+				stateOne.setQueryTimeout(TIMEOUT);
+				
+				//Sets the strings.
+				stateOne.setString(1, values[0]);
+				stateOne.setString(2, values[1]);
+				stateOne.setString(3, values[2]);
+				stateTwo.setString(1, values[0]);
+				stateTwo.setString(2, ID);
+				
+				stateOne.executeUpdate();
+				stateTwo.executeUpdate();
 			} catch (SQLException e) {
 				e.printStackTrace();
 			}
@@ -285,6 +338,7 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 		//Builds new hashmaps to store values.
 		Map<String, Integer> bugs = new HashMap<String, Integer>();
 		Map<String, Integer> commits = new HashMap<String, Integer>();
+		String sql = "INSERT INTO File VALUES(?, ?, ?, ?);";
 		
 		//We need to specially parse this output.
 		for (String entry : files){
@@ -304,79 +358,54 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 				commits.put(values[0], Integer.parseInt(values[1]));
 			}
 		}
-		
-		//Now, we build the query statements.
-		String values = "";
+
+		//Now, builds the query.
 		for (Map.Entry<String, Integer> entry : commits.entrySet()){
-			values += "(\"" + ID + "\",\"" + entry.getKey() + "\"," +
-					entry.getValue() + ",";
-			
-			//Adds in the number of bugs.
-			if (bugs.containsKey(entry.getKey())){
-				values += bugs.get(entry.getKey());
-			} else {
-				values += "0";
-			}
-			
-			//Finishes off the end statement.
-			values += "),";
+			try {
+				//Prepares the statement.
+				PreparedStatement state = conn.prepareStatement(sql);
+				state.setQueryTimeout(TIMEOUT);
+				
+				//Sets the values.
+				state.setString(1, ID);
+				state.setString(2, entry.getKey());
+				state.setInt(3, entry.getValue());
+				state.setInt(4, (bugs.containsKey(entry.getKey())) ?
+						bugs.get(entry.getKey()) : 0);
+				
+				state.executeUpdate();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}	
 		}
-		values = values.substring(0, values.length() - 1) + ";";
-		
-		//Prepares query executor.
-		Statement state;
-		try {
-			state = conn.createStatement();
-			state.setQueryTimeout(TIMEOUT);
-		} catch (SQLException e) {
-			e.printStackTrace();
-			return false;
-		}
-		
-		//Iterates through each of the files to build the SQL.
-		String sql = "INSERT INTO File VALUES";
-		sql += values;
-		
-		//Runs the query.
-		try {
-			state.executeUpdate(sql);
-		} catch (SQLException e) {
-			e.printStackTrace();
-			return false;
-		}	
-		
+
 		return true;
 	}
 
 	private boolean saveCommits(ArrayList<String> commits, String ID, Connection conn) {
-		//Prepares query executor.
-		Statement state;
-		try {
-			state = conn.createStatement();
-			state.setQueryTimeout(TIMEOUT);
-		} catch (SQLException e) {
-			e.printStackTrace();
-			return false;
-		}
+		String valOne[], valTwo[];
+		String sql = "INSERT INTO CommitData VALUES(?, ?, ?, ?);";
 		
-		//Goes through the output.
-		String sql = "INSERT INTO CommitData VALUES";
-		String[] valOne, valTwo;
-		for (String entry : commits){
-			entry = entry.replace(COMMIT_FILE_PREFIX + "[", "");
-			valOne = entry.split("]\\[");
-			valTwo = valOne[1].split("] = ");
-			sql += "(\"" + ID + "\",\"" + valOne[0] + "\",\"" + valTwo[0] + 
-					"\",\"" + valTwo[1] + "\"),";
-		}
-		sql = sql.substring(0, sql.length() - 1) + ";";
-		
-		//Runs the query.
-		try {
-			state.executeUpdate(sql);
-		} catch (SQLException e) {
-			e.printStackTrace();
-			return false;
+		//Outputs each commit one at a time.
+		for (String entry : commits) {
+			try {
+				//Prepares the statement.
+				PreparedStatement state = conn.prepareStatement(sql);
+				state.setQueryTimeout(TIMEOUT);
+				
+				entry = entry.replace(COMMIT_FILE_PREFIX + "[", "");
+				valOne = entry.split("]\\[");
+				valTwo = valOne[1].split("] = ");
+				
+				state.setString(1, ID);
+				state.setString(2, valOne[0]);
+				state.setString(3, valTwo[0]);
+				state.setInt(4, Integer.parseInt(valTwo[1]));
+
+				state.executeUpdate();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
 		}
 		
 		return true;
@@ -406,15 +435,12 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 		//First, check for failure.
 		if (failureFlag.get()) return;
 		
-		//States that the data was received.
-		
 		//Set the database file up.
 		Connection conn = initializeDB();
 		
 		//Stores the current project.
 		if (!storeProject(ID, conn)) {
 			fail(ID);
-			failureFlag.set(true);
 			return;
 		}
 		
@@ -437,17 +463,14 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 		//Now, we write all this data to the database.
 		if (!saveFiles(files, ID, conn)){
 			fail(ID);
-			failureFlag.set(true);
 			return;
 		}
 		if (!saveUsers(users, ID, conn)){
 			fail(ID);
-			failureFlag.set(true);
 			return;
 		}
 		if (!saveCommits(commits, ID, conn)){
 			fail(ID);
-			failureFlag.set(true);
 			return;
 		}
 		

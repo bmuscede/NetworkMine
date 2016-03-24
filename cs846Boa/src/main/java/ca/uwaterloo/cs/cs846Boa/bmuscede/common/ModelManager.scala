@@ -3,6 +3,7 @@ package ca.uwaterloo.cs.cs846Boa.bmuscede.common
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.RDD
+import scala.collection.mutable.ArrayBuffer
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.mllib.classification.{SVMModel, SVMWithSGD}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -18,9 +19,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
   var testSaveLoc = ""
   
   //Predictors for correct, false positive, false negative.
-  var correct = 0
-  var falsePos = 0
-  var falseNeg = 0
+  var correct = ArrayBuffer[Double]()
+  var falsePos = ArrayBuffer[Double]()
+  var falseNeg = ArrayBuffer[Double]()
   
   //Output for iterations system.
   var MODEL_SAVE = "model_"
@@ -29,9 +30,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
   def runIterations(input : java.util.List[LabeledPoint],
     genSaveLoc: String, iterations: Int) = {
     //Resets values for precision and recall.
-    correct = 0
-    falsePos = 0
-    falseNeg = 0
+    correct.clear()
+    falsePos.clear()
+    falseNeg.clear()
     
     //Create the Spark context and conf
     val conf = new SparkConf()
@@ -49,9 +50,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
   def performRegression(sc: SparkContext, input: java.util.List[LabeledPoint],
       mSave: String = "", tSave: String = "") = {
     //Resets values for precision and recall.
-    correct = 0
-    falsePos = 0
-    falseNeg = 0
+    correct.clear()
+    falsePos.clear()
+    falseNeg.clear()
     
     //Create the Spark context and conf
     val conf = new SparkConf()
@@ -63,16 +64,28 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     regressionRunner(sc, input, mSave, tSave);
   }
   
-  def getPrecision() : Double = {
-    if (correct == 0 && falsePos == 0) return 0d;
+  def getPrecision() : Array[Double] = {
+    if (correct == 0 && falsePos == 0) return null
     
-    return correct.toDouble / (correct + falsePos);
+    //Computes the precision for each computed instance.
+    var precision = Array[Double](correct.length)
+    for (i <- 0 to (correct.length - 1)){
+      correct(i).toDouble / (correct(i) + falsePos(i))
+    }
+    
+    return precision
   }
   
-  def getRecall() : Double = {
-    if (correct == 0 && falseNeg == 0) return 0d;
+  def getRecall() : Array[Double] = {
+    if (correct == 0 && falseNeg == 0) return null;
     
-    return correct.toDouble / (correct + falseNeg);
+    //Computes the recall for each instance.
+    var recall = Array[Double](correct.length)
+    for (i <- 0 to (correct.length - 1)){
+      correct(i).toDouble / (correct(i) + falseNeg(i))  
+    }
+    
+    return recall
   }
   
   private def regressionRunner(sc: SparkContext, 
