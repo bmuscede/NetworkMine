@@ -314,18 +314,25 @@ public class ContributionBuilder extends Thread implements FinishedQuery {
 			try {
 				stateOne = conn.prepareStatement
 						("INSERT INTO User VALUES(?, ?, ?);");
-				stateTwo = conn.prepareStatement
-						("INSERT INTO BelongsTo VALUES(? , ?);");
 				stateOne.setQueryTimeout(TIMEOUT);
 				
 				//Sets the strings.
 				stateOne.setString(1, values[0]);
 				stateOne.setString(2, values[1]);
 				stateOne.setString(3, values[2]);
+				
+				stateOne.executeUpdate();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
+			try {
+				stateTwo = conn.prepareStatement
+						("INSERT INTO BelongsTo VALUES(? , ?);");
+				stateTwo.setQueryTimeout(TIMEOUT);
+				
 				stateTwo.setString(1, values[0]);
 				stateTwo.setString(2, ID);
 				
-				stateOne.executeUpdate();
 				stateTwo.executeUpdate();
 			} catch (SQLException e) {
 				e.printStackTrace();

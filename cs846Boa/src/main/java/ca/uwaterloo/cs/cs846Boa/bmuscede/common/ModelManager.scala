@@ -3,7 +3,7 @@ package ca.uwaterloo.cs.cs846Boa.bmuscede.common
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.RDD
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.Map
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.mllib.classification.{SVMModel, SVMWithSGD}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -19,13 +19,19 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
   var testSaveLoc = ""
   
   //Predictors for correct, false positive, false negative.
-  var correct = ArrayBuffer[Double]()
-  var falsePos = ArrayBuffer[Double]()
-  var falseNeg = ArrayBuffer[Double]()
+  var correct : Map[Int,Int] = Map()
+  var falsePos : Map[Int,Int] = Map()
+  var falseNeg : Map[Int,Int] = Map()
   
   //Output for iterations system.
   var MODEL_SAVE = "model_"
   var TEST_SAVE = "test_"
+  
+  //Create the Spark context and conf
+  val conf = new SparkConf()
+    .setAppName("Logical Regression: Model")
+    .setMaster("local")
+  val sc = new SparkContext(conf)
   
   def runIterations(input : java.util.List[LabeledPoint],
     genSaveLoc: String, iterations: Int) = {
@@ -34,16 +40,10 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     falsePos.clear()
     falseNeg.clear()
     
-    //Create the Spark context and conf
-    val conf = new SparkConf()
-      .setAppName("Logical Regression: Model (" + iterations + ")")
-      .setMaster("local")
-    val sc = new SparkContext(conf)
-    
     //We simply run the regression program a certain number of times.
     for (i <- 1 to iterations){
-      regressionRunner(sc, input, genSaveLoc + "/" + MODEL_SAVE + i.toString(),
-          genSaveLoc + "/" + TEST_SAVE + i.toString());
+      regressionRunner(input, genSaveLoc + "/" + MODEL_SAVE + i.toString(),
+          genSaveLoc + "/" + TEST_SAVE + i.toString(), i);
     }
   }
   
@@ -54,43 +54,37 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     falsePos.clear()
     falseNeg.clear()
     
-    //Create the Spark context and conf
-    val conf = new SparkConf()
-      .setAppName("Logical Regression: Model (1)")
-      .setMaster("local")
-    val sc = new SparkContext(conf)
-    
     //Runs the regression
-    regressionRunner(sc, input, mSave, tSave);
+    regressionRunner(input, mSave, tSave, 1);
   }
   
   def getPrecision() : Array[Double] = {
     if (correct == 0 && falsePos == 0) return null
     
     //Computes the precision for each computed instance.
-    var precision = Array[Double](correct.length)
-    for (i <- 0 to (correct.length - 1)){
-      correct(i).toDouble / (correct(i) + falsePos(i))
+    var precision = new Array[Double](correct.size)
+    for (i <- 1 to correct.size){
+      precision(i - 1) = correct(i).toDouble / (correct(i) + falsePos(i))
     }
     
     return precision
   }
   
   def getRecall() : Array[Double] = {
-    if (correct == 0 && falseNeg == 0) return null;
+    if (correct(1) == 0 && falseNeg(1) == 0) return null;
     
     //Computes the recall for each instance.
-    var recall = Array[Double](correct.length)
-    for (i <- 0 to (correct.length - 1)){
-      correct(i).toDouble / (correct(i) + falseNeg(i))  
+    var recall = new Array[Double](correct.size)
+    for (i <- 1 to correct.size){
+      recall(i - 1) = correct(i).toDouble / (correct(i) + falseNeg(i))  
     }
     
     return recall
   }
   
-  private def regressionRunner(sc: SparkContext, 
+  private def regressionRunner(
       input: java.util.List[LabeledPoint],
-      mSave: String = "", tSave: String = "") = {
+      mSave: String = "", tSave: String = "", itNum : Int) = {
     val points = asScalaBuffer(input).toList
     
     //Sets the save locations.
@@ -137,9 +131,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
         val list = Array((correct, falsePos, falseNeg))
         list.toIterator
       }).collect()
-    correct += precision(0)._1
-    falsePos += precision(0)._2
-    falseNeg += precision(0)._3
+    correct.put(itNum, precision(0)._1)
+    falsePos.put(itNum, precision(0)._2)
+    falseNeg.put(itNum, precision(0)._3)
     
     //Saves the testing data.
     if (testSaveLoc != "")

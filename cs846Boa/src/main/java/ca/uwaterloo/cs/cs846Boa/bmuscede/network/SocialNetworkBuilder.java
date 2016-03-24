@@ -63,7 +63,10 @@ public class SocialNetworkBuilder {
 	private Graph<Actor, Commit> network;
 	
 	//Map to hold centrality.
-	Map<Actor, Double[]> scoreMap = null;
+	Map<Actor, Double> betweenScore = new HashMap<Actor, Double>();
+	Map<Actor, Double> closeScore = new HashMap<Actor, Double>();
+	Map<Actor, Double> degreeScore = new HashMap<Actor, Double>();
+	Transformer<Commit, Integer> edgeWeights;
 	
 	//Final variables.
 	private final static String DB_LOC = "data/boa.db";
@@ -72,10 +75,7 @@ public class SocialNetworkBuilder {
 	private final int NUM_REGRESS_ITER = 100;
 	
 
-	public static String performFunctionsOnAll(String output, int iterations) {
-		//Creates an instance of the social network builder.
-		SocialNetworkBuilder snb = new SocialNetworkBuilder();
-		
+	public static String performFunctionsOnAll(String output, int iterations) {		
 		//Pulls a list of all projects from the database.
 		String sql = "SELECT ProjectID FROM Project;";
 		
@@ -101,14 +101,7 @@ public class SocialNetworkBuilder {
 	    //Next, we iterate through all the IDs and run our program on it.
 	    String csv = "";
 	    for (String ID : results){
-	    	snb.buildSocialNetwork(ID);
-	    	
-	    	snb.computeCentrality();
-	    	
-	    	double[][] spearman = snb.performSpearmanCorrelation();
-	    	
-	    	double[][] pR = snb.performRegression(output + "_" + ID, iterations);
-	    	csv += generateCSV(ID, spearman, pR);
+	    	performFunctions(ID, output, iterations);
 	    }
 	    
 	    return csv;
@@ -120,20 +113,34 @@ public class SocialNetworkBuilder {
 		SocialNetworkBuilder snb = new SocialNetworkBuilder();
 		
 		//Builds the social network.
+		System.out.println("Developing social network for project #" + ID + "...");
 		snb.buildSocialNetwork(ID);
     	
 		//Computes the centrality.
-    	snb.computeCentrality();
+		System.out.println("Computing betweenness centrality for project #" + ID + "...");
+    	snb.computeBetweennessCentrality();
+    	System.out.println("Computing closeness centrality for project #" + ID + "...");
+    	snb.computeClosenessCentrality();
+    	System.out.println("Computing degree centrality for project #" + ID + "...");
+    	snb.computeDegreeCentrality();
     	
     	//Computes the Spearman and PR values.
+    	System.out.println("Calculating Spearman Correlation for all metrics " +
+    			"for project #" + ID + "...");
     	double[][] spearman = snb.performSpearmanCorrelation();
+    	System.out.println("Performing logical regression for project #" + ID + "...");
     	double[][] pR = snb.performRegression(output + "_" + ID, iterations);
     	
     	//Returns the final result.
+    	System.out.println("Generating final CSV report.");
     	return generateCSV(ID, spearman, pR);
 	}
 	
 	public SocialNetworkBuilder(){
+		betweenScore = new HashMap<Actor, Double>();
+		closeScore = new HashMap<Actor, Double>();
+		degreeScore = new HashMap<Actor, Double>();
+		
 		//Initializes the graph.
 		network = new UndirectedSparseGraph<Actor, Commit>();
 	}
@@ -177,45 +184,67 @@ public class SocialNetworkBuilder {
 		return true;
 	}
 
-	public boolean computeCentrality(){
+	public boolean computeBetweennessCentrality(){
+		//First, checks if we have a full graph.
+		if (network.getVertexCount() == 0) return false;
+		if (edgeWeights == null) developTransformer();
+		
+		//Creates the betweenness centrality object.
+		BetweennessCentrality<Actor, Commit> betweenCompute = 
+				new BetweennessCentrality<Actor, Commit>(network, edgeWeights);
+		
+		//Iterates through all the vertices.
+		for (Actor curr : network.getVertices()){
+			betweenScore.put(curr, betweenCompute.getVertexScore(curr));
+		}
+		
+		return true;
+	}
+	
+	public boolean computeClosenessCentrality(){
+		//First, checks if we have a full graph.
+		if (network.getVertexCount() == 0) return false;
+		if (edgeWeights == null) developTransformer();
+		
+		//Creates the closeness centrality object.
+		ClosenessCentrality<Actor, Commit> closeCompute =
+				new ClosenessCentrality<Actor, Commit>(network, edgeWeights);
+		
+		//Iterates through all the vertices.
+		for (Actor curr : network.getVertices()){
+			closeScore.put(curr, closeCompute.getVertexScore(curr));
+		}
+		
+		return true;
+	}
+	
+	public boolean computeDegreeCentrality(){
 		//First, checks if we have a full graph.
 		if (network.getVertexCount() == 0) return false;
 		
-		//Builds a transformer to get edge weights.
-		Transformer<Commit, Integer> edgeWeights = 
-				new Transformer<Commit, Integer>() {
-			public Integer transform(Commit curCommit){
-				return curCommit.getWeight();
-			}
-		};
-
-		//Develops the network scoring systems.
-		BetweennessCentrality<Actor, Commit> betweenCompute = 
-				new BetweennessCentrality<Actor, Commit>(network, edgeWeights);
-		ClosenessCentrality<Actor, Commit> closeCompute =
-				new ClosenessCentrality<Actor, Commit>(network, edgeWeights);
+		//Creates the degree centrality object.
 		DegreeScorer<Actor> degreeCompute = 
 				new DegreeScorer<Actor>(network);
 		
-		//Now we create our scoring map.
-		scoreMap = new HashMap<Actor, Double[]>();
-		
-		//Finally, we iterate through the actors in our network.
+		//Iterates through all the vertices.
 		for (Actor curr : network.getVertices()){
-			Double scores[] = {betweenCompute.getVertexScore(curr),
-					closeCompute.getVertexScore(curr),
-					(double) degreeCompute.getVertexScore(curr)};
-			
-			scoreMap.put(curr, scores);
+			degreeScore.put(curr, (double) degreeCompute.getVertexScore(curr));
 		}
 		
-		//Success.
 		return true;
 	}
 	
 	public double[][] performRegression(String output, int iterations){
 		//We compute centrality first.
-		if (scoreMap == null) computeCentrality();
+		if (betweenScore.size() == 0){
+			computeBetweennessCentrality();
+		}
+		if (closeScore.size() == 0){
+			computeClosenessCentrality();
+		}
+		if (degreeScore.size() == 0){
+			computeDegreeCentrality();
+		}
 		
 		//First we transform our dataset.
 		List<LabeledPoint> metricEntry = new ArrayList<LabeledPoint>();
@@ -225,7 +254,9 @@ public class SocialNetworkBuilder {
 		
 			//Now we get all the centrality metrics and set them as a features.
 			//TODO Several things. Add in normalization and set some sort of label.
-			Double[] centrality = scoreMap.get(act);
+			Double betweenCentrality = betweenScore.get(act);
+			Double closeCentrality = closeScore.get(act);
+			Double degreeCentrality = degreeScore.get(act);
 			
 			//Get the label.
 			FileActor file = (FileActor) act;
@@ -235,7 +266,8 @@ public class SocialNetworkBuilder {
 			//Adds the feature.
 			metricEntry.add(new LabeledPoint
 					(label, 
-					Vectors.dense(centrality[0], centrality[1], centrality[2]))); 
+					Vectors.dense(betweenCentrality, 
+							closeCentrality, degreeCentrality))); 
 		}
 		
 		//Now that we have our labeled point setup, we pass it to Spark.
@@ -255,7 +287,15 @@ public class SocialNetworkBuilder {
 		double[][] correlation = new double[MAX_CORR][MAX_CORR];
 		
 		//We compute centrality first.
-		if (scoreMap == null) computeCentrality();
+		if (betweenScore.size() == 0){
+			computeBetweennessCentrality();
+		}
+		if (closeScore.size() == 0){
+			computeClosenessCentrality();
+		}
+		if (degreeScore.size() == 0){
+			computeDegreeCentrality();
+		}
 		
 		//Calculate number of files.
 		int numFiles = 0;
@@ -278,6 +318,15 @@ public class SocialNetworkBuilder {
 		}
 		
 		return correlation;
+	}
+	
+	private void developTransformer(){
+		//Develops the transformer.
+		edgeWeights = new Transformer<Commit, Integer>() {
+			public Integer transform(Commit curCommit){
+				return curCommit.getWeight();
+			}
+		};
 	}
 	
 	private double[][] populateAll(int size){
@@ -309,13 +358,13 @@ public class SocialNetworkBuilder {
 					result[i] = file.getBugFixes();
 					break;
 				case BETWEEN:
-					result[i] = scoreMap.get(file)[0];
+					result[i] = betweenScore.get(file);
 					break;
 				case CLOSE:
-					result[i] = scoreMap.get(file)[1];
+					result[i] = closeScore.get(file);
 					break;
 				case DEGREE:
-					result[i] = scoreMap.get(file)[2];
+					result[i] = degreeScore.get(file);
 					break;
 			}
 			
@@ -370,6 +419,17 @@ public class SocialNetworkBuilder {
 			FileActor file = fLookup.get(items[1]);
 			UserActor user = uLookup.get(items[0]);
 			
+			//Adds system to ensure user is not null.
+			//Note: Files are not handled like this
+			//since we expect there to be a record of such.
+			if (user == null){
+				System.err.println("Unknown Actor: " + items[0] + "\n" +
+						"Actor added in manually.");
+				//Default actor for this.
+				user = new UserActor(items[0], items[0], items[0]);
+				uLookup.put(items[0], user);
+			}
+			
 			//Adds the edge based on the lookup table.
 			network.addEdge(comm, file, user);
 		}
@@ -406,10 +466,9 @@ public class SocialNetworkBuilder {
 		
 		//Develops the query.
 		try {
-			rs = state.executeQuery("SELECT * FROM User "
-						+ "INNER JOIN BelongsTo ON User.Username = "
-						+ "BelongsTo.User WHERE "
-						+ "Project = \"" + projID + "\";");
+			rs = state.executeQuery("SELECT * FROM User INNER JOIN BelongsTo "
+					+ "ON User.Username = BelongsTo.User"
+					+ " WHERE Project = \"" + projID + "\";");
 			
 			//We iterate through the results.
 			while (rs.next()){
