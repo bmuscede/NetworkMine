@@ -1,11 +1,6 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.network;
 
-import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.stat.correlation.*;
-import org.apache.commons.math3.stat.ranking.NaNStrategy;
-import org.apache.commons.math3.stat.ranking.NaturalRanking;
-import org.apache.commons.math3.stat.ranking.TiesStrategy;
-
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -28,26 +23,37 @@ import edu.uci.ics.jung.graph.UndirectedSparseGraph;
 
 public class SocialNetworkBuilder {
 	private enum ColumnType{
-		COMMIT(0),
-		FAILURE(1),
-		BETWEEN(2),
-		CLOSE(3),
-		DEGREE(4);
+		COMMIT(0, "Commits"),
+		FAILURE(1, "Failures"),
+		BETWEEN(2, "Betweenness Centrality"),
+		CLOSE(3, "Closeness Centrality"),
+		DEGREE(4, "Degree Centrality");
 		
 		private int val;
+		private String lab;
 		
-		ColumnType(int num){
+		ColumnType(int num, String label){
 			val = num;
+			lab = label;
 		}
 		
-		public int getVal(){
-			return val;
+		public String getLabel(){
+			return lab;
 		}
 		
 		public static ColumnType valueOf(int value) {
 		    for (ColumnType type : values()) {
 		        if (type.val == value) {
 		            return type;
+		        }
+		    }    
+		    throw new IllegalArgumentException(String.valueOf(value));
+		}
+		
+		public static String labelFor(int value) {
+		    for (ColumnType type : values()) {
+		        if (type.val == value) {
+		            return type.getLabel();
 		        }
 		    }    
 		    throw new IllegalArgumentException(String.valueOf(value));
@@ -62,11 +68,11 @@ public class SocialNetworkBuilder {
 	//Final variables.
 	private final static String DB_LOC = "data/boa.db";
 	private final static int TIMEOUT = 30;
-	private final int MAX_CORR = 5;
+	private final static int MAX_CORR = 5;
 	private final int NUM_REGRESS_ITER = 100;
 	
 
-	public static void runRegressionOnAll(String output, int iterations) {
+	public static String performFunctionsOnAll(String output, int iterations) {
 		//Creates an instance of the social network builder.
 		SocialNetworkBuilder snb = new SocialNetworkBuilder();
 		
@@ -89,20 +95,42 @@ public class SocialNetworkBuilder {
 		    conn.close();
 	    } catch (SQLException e){
 	    	e.printStackTrace();
-	    	return;
+	    	return "";
 	    }
 	    
 	    //Next, we iterate through all the IDs and run our program on it.
+	    String csv = "";
 	    for (String ID : results){
 	    	snb.buildSocialNetwork(ID);
-	    	System.out.println("Social network built for project #" + ID);
 	    	
 	    	snb.computeCentrality();
-	    	System.out.println("Centrality computed for project #" + ID);
 	    	
-	    	snb.performRegression(output + "_" + ID, iterations);
-	    	System.out.println("Regression performed.");
+	    	double[][] spearman = snb.performSpearmanCorrelation();
+	    	
+	    	double[][] pR = snb.performRegression(output + "_" + ID, iterations);
+	    	csv += generateCSV(ID, spearman, pR);
 	    }
+	    
+	    return csv;
+	}
+	
+	
+	public static String performFunctions(String ID, String output, int iterations){
+		//Creates an instance of the social network builder.
+		SocialNetworkBuilder snb = new SocialNetworkBuilder();
+		
+		//Builds the social network.
+		snb.buildSocialNetwork(ID);
+    	
+		//Computes the centrality.
+    	snb.computeCentrality();
+    	
+    	//Computes the Spearman and PR values.
+    	double[][] spearman = snb.performSpearmanCorrelation();
+    	double[][] pR = snb.performRegression(output + "_" + ID, iterations);
+    	
+    	//Returns the final result.
+    	return generateCSV(ID, spearman, pR);
 	}
 	
 	public SocialNetworkBuilder(){
@@ -422,5 +450,47 @@ public class SocialNetworkBuilder {
 		//Returns the results.
 		if (results.isEmpty()) return null;
 		return results;
+	}
+	
+	private static String 
+		generateCSV(String ID, double[][] spearman, double[][] PR){
+		String output = "Project #" + ID + ":\n";
+		
+		//Prints the Spearman correlations.
+		output += "Spearman - \n";
+		for (int i = -1; i < MAX_CORR; i++){
+			String line = "";
+			for (int j = -1; j < MAX_CORR; j++){
+				//Checks if we're printing the labels.
+				if (i == -1 && j == -1){
+					line += ",";
+					continue;
+				} else if (i == -1){
+					line += ColumnType.labelFor(j);
+				} else if (j == -1){
+					line += ColumnType.labelFor(i);
+				} else {
+					//Print the value.
+					line += spearman[i][j];
+				}
+				
+				//Adds in the ,
+				if (j < MAX_CORR - 1)
+					line += ",";
+			}
+			
+			//Flushes output.
+			output += line + "\n";
+		}
+		
+		//Prints the Precision and Recall values.
+		output += "Precision & Recall - \n";
+		for (int i = 0; i < PR[0].length; i++){
+			output += i + "," + PR[0][i] + "," + PR[1][i] + "\n";
+		}
+		output += "-,-,-,-";
+		
+		//Returns the output.
+		return output;
 	}
 }

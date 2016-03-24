@@ -1,5 +1,8 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.network;
 
+import java.io.File;
+import java.io.IOException;
+import org.apache.commons.io.FileUtils;
 import org.kohsuke.args4j.*;
 
 public class SocialNetworkProg {
@@ -14,6 +17,10 @@ public class SocialNetworkProg {
         @Option(name = "-regOut", metaVar = "[path]", 
         		required = true, usage = "The directory for the regression output")
         public String output;
+        
+        @Option(name = "-csvOut", metaVar = "[name]",
+        		required = true, usage = "The output file for the CSV generated.")
+        public String csvOut;
         
         //The number of regression iterations.
         @Option(name = "-iterations", metaVar = "[num]", 
@@ -37,33 +44,31 @@ public class SocialNetworkProg {
     	}
     	
     	//Checks the project ID flag.
+    	String CSV = "";
     	if (arguments.projectID.equals("all")){
-    		SocialNetworkBuilder.runRegressionOnAll(arguments.output, arguments.iterations);
+    		//Runs the analysis on ALL networks.
+    		CSV += SocialNetworkBuilder.performFunctionsOnAll(arguments.output, 
+    				arguments.iterations);
+    	} else {
+    		//Runs the analysis on some specified network.
+    		CSV += SocialNetworkBuilder.performFunctions(arguments.projectID, 
+    				arguments.output, arguments.iterations);
     	}
     	
-    	//Creates the social network program.
-    	SocialNetworkBuilder snb = new SocialNetworkBuilder();
-    	boolean succ = snb.buildSocialNetwork(arguments.projectID);
-    	
-    	if (!succ){
-    		System.out.println("Failure");
+    	//Checks for failures.
+    	if (CSV.equals("")){
+    		System.err.println("Failure performing analysis on social network "
+    				+ "for project #" + arguments.projectID + "!");
     		return;
-		} else {
-			System.out.println("Social network for " + arguments.projectID +
-					" created.");
+    	}
+    	
+    	//Outputs the CSV.
+    	try {
+			FileUtils.writeStringToFile(new File(arguments.csvOut), 
+					CSV);
+		} catch (IOException e) {
+			System.err.println("CSV generated but could not be written to the"
+					+ " file " + arguments.csvOut + "!");
 		}
-    	
-    	//Now we compute the centrality.
-    	succ = snb.computeCentrality();
-    	if (!succ){
-    		System.out.println("Failure");
-    		return;
-    	}
-    	
-		System.out.println("Centralities for social network #" +
-				arguments.projectID + " computed.");
-		
-		snb.performRegression(arguments.output, arguments.iterations);
-		System.out.println("Regression analysis complete.");
 	}
 }
