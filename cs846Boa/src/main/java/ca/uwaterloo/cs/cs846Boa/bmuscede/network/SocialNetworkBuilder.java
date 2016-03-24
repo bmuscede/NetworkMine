@@ -68,6 +68,9 @@ public class SocialNetworkBuilder {
 	Map<Actor, Double> degreeScore = new HashMap<Actor, Double>();
 	Transformer<Commit, Integer> edgeWeights;
 	
+	//Regression Manager
+	private ModelManager manager;
+	
 	//Final variables.
 	private final static String DB_LOC = "data/boa.db";
 	private final static int TIMEOUT = 30;
@@ -143,6 +146,9 @@ public class SocialNetworkBuilder {
 		
 		//Initializes the graph.
 		network = new UndirectedSparseGraph<Actor, Commit>();
+		
+		//Creates the logicstic regression parameter.
+		manager = new ModelManager(60f, NUM_REGRESS_ITER);
 	}
 	
 	public boolean buildSocialNetwork(String projectID){
@@ -271,13 +277,12 @@ public class SocialNetworkBuilder {
 		}
 		
 		//Now that we have our labeled point setup, we pass it to Spark.
-		ModelManager manage = new ModelManager(60f, NUM_REGRESS_ITER);
-		manage.runIterations(metricEntry, output,  iterations);
+		manager.runIterations(metricEntry, output,  iterations);
 		
 		//Gets the precision and recall for each.
 		double[][] prResults = new double[2][iterations];
-		prResults[0] = manage.getPrecision();
-		prResults[1] = manage.getRecall();
+		prResults[0] = manager.getPrecision();
+		prResults[1] = manager.getRecall();
 		
 		return prResults;
 	}
