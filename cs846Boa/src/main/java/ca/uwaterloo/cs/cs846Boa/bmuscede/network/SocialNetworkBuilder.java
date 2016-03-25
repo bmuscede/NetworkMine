@@ -124,7 +124,7 @@ public class SocialNetworkBuilder {
 		//Simply loop through all the networks.
 		String csv = "";
 		for (String ID : networks){
-			performFunctions(ID, output, iterations);
+			csv += performFunctions(ID, output, iterations);
 		}
 		
 		System.out.println("All " + networks.length + " projects " +
