@@ -1,6 +1,8 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.network;
 
 import org.apache.commons.math3.stat.correlation.*;
+import org.apache.commons.math3.stat.inference.TTest;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -326,7 +328,7 @@ public class SocialNetworkBuilder {
 	
 	public double[][] performSpearmanCorrelation(){
 		double[][] xCol, yCol;
-		double[][] correlation = new double[MAX_CORR][MAX_CORR];
+		double[][] correlation = new double[MAX_CORR*2][MAX_CORR*2];
 		
 		//We compute centrality first.
 		if (betweenScore.size() == 0){
@@ -346,6 +348,7 @@ public class SocialNetworkBuilder {
 		
 		//Creates a generic SpearmansCorrelation object.
 		SpearmansCorrelation corr = new SpearmansCorrelation();
+		TTest corrTest = new TTest();
 		
 		//Populates all columns.
 		xCol = populateAll(numFiles);
@@ -356,6 +359,8 @@ public class SocialNetworkBuilder {
 			for (int j = 0; j < MAX_CORR; j++){
 				//Performs Spearmans correlation.
 				correlation[i][j] = corr.correlation(xCol[i], yCol[j]);
+				correlation[i + MAX_CORR][j + MAX_CORR] = 
+						corrTest.pairedTTest(xCol[i], yCol[j]);
 			}
 		}
 		
@@ -559,6 +564,23 @@ public class SocialNetworkBuilder {
 		
 		//Prints the Spearman correlations.
 		output += "Spearman - \n";
+		output += printSpearman(spearman);
+		
+		//Prints the Precision and Recall values.
+		output += "Precision & Recall - \n";
+		for (int i = 0; i < PR[0].length; i++){
+			output += i + "," + PR[0][i] + "," + PR[1][i] + "\n";
+		}
+		output += "-,-,-,-";
+		
+		//Returns the output.
+		return output;
+	}
+	
+	private static String printSpearman(double[][] spearman){
+		String output = "";
+		
+		//First, print out the correlations.
 		for (int i = -1; i < MAX_CORR; i++){
 			String line = "";
 			for (int j = -1; j < MAX_CORR; j++){
@@ -584,14 +606,31 @@ public class SocialNetworkBuilder {
 			output += line + "\n";
 		}
 		
-		//Prints the Precision and Recall values.
-		output += "Precision & Recall - \n";
-		for (int i = 0; i < PR[0].length; i++){
-			output += i + "," + PR[0][i] + "," + PR[1][i] + "\n";
+		//Next, print out the p-values.
+		for (int i = MAX_CORR; i < MAX_CORR * 2; i++){
+			String line = "";
+			for (int j = MAX_CORR; j < MAX_CORR * 2; j++){
+				//Checks if we're printing the labels.
+				if (i == MAX_CORR && j == MAX_CORR){
+					line += ",";
+					continue;
+				} else if (i == MAX_CORR){
+					line += ColumnType.labelFor(j - MAX_CORR);
+				} else if (j == MAX_CORR){
+					line += ColumnType.labelFor(i - MAX_CORR);
+				} else {
+					//Print the value.
+					line += spearman[i][j];
+				}
+				
+				//Adds in the ,
+				if (j < (MAX_CORR * 2) - 1)
+					line += ",";
+			}
+			
+			//Flushes output.
+			output += line + "\n";
 		}
-		output += "-,-,-,-";
-		
-		//Returns the output.
 		return output;
 	}
 }
