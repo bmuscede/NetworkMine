@@ -60,6 +60,9 @@ public class SocialNetworkBuilder {
 		}
 	}
 	
+	private static SocialNetworkBuilder snb = null;
+	
+	//Social network.
 	private Graph<Actor, Commit> network;
 	
 	//Map to hold centrality.
@@ -79,6 +82,8 @@ public class SocialNetworkBuilder {
 	
 
 	public static String performFunctionsOnAll(String output, int iterations) {		
+		long startTime = System.currentTimeMillis();
+		
 		//Pulls a list of all projects from the database.
 		String sql = "SELECT ProjectID FROM Project;";
 		
@@ -107,13 +112,35 @@ public class SocialNetworkBuilder {
 	    	performFunctions(ID, output, iterations);
 	    }
 	    
+	    System.out.println("All " + results.size() + " projects " +
+				"analyzed in " + 
+    			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
 	    return csv;
 	}
 	
+	public static String performFunctionsOnSome(String[] networks, String output, int iterations) {		
+		long startTime = System.currentTimeMillis();
+		
+		//Simply loop through all the networks.
+		String csv = "";
+		for (String ID : networks){
+			performFunctions(ID, output, iterations);
+		}
+		
+		System.out.println("All " + networks.length + " projects " +
+				"analyzed in " + 
+    			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
+		return csv;
+	}
 	
 	public static String performFunctions(String ID, String output, int iterations){
+		long startTime = System.currentTimeMillis();
+		
 		//Creates an instance of the social network builder.
-		SocialNetworkBuilder snb = new SocialNetworkBuilder();
+		if (snb == null)
+			snb = new SocialNetworkBuilder();
+		else
+			snb.refresh();
 		
 		//Builds the social network.
 		System.out.println("Developing social network for project #" + ID + "...");
@@ -135,20 +162,30 @@ public class SocialNetworkBuilder {
     	double[][] pR = snb.performRegression(output + "_" + ID, iterations);
     	
     	//Returns the final result.
-    	System.out.println("Generating final CSV report.");
-    	return generateCSV(ID, spearman, pR);
+    	System.out.println("Generating CSV text...");
+    	String CSV = generateCSV(ID, spearman, pR);
+    	
+    	System.out.println("Project #" + ID + " analyzed in " + 
+    			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
+    	
+    	return CSV;
 	}
 	
 	public SocialNetworkBuilder(){
+		//Refreshes the logistic manager.
+		refresh();
+		
+		//Creates the logicstic regression parameter.
+		manager = new ModelManager(60f, NUM_REGRESS_ITER);
+	}
+	
+	private void refresh(){
 		betweenScore = new HashMap<Actor, Double>();
 		closeScore = new HashMap<Actor, Double>();
 		degreeScore = new HashMap<Actor, Double>();
 		
 		//Initializes the graph.
 		network = new UndirectedSparseGraph<Actor, Commit>();
-		
-		//Creates the logicstic regression parameter.
-		manager = new ModelManager(60f, NUM_REGRESS_ITER);
 	}
 	
 	public boolean buildSocialNetwork(String projectID){

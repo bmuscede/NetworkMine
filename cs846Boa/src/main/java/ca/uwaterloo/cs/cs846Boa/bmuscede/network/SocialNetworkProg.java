@@ -49,6 +49,11 @@ public class SocialNetworkProg {
     		//Runs the analysis on ALL networks.
     		CSV += SocialNetworkBuilder.performFunctionsOnAll(arguments.output, 
     				arguments.iterations);
+    	} else if (arguments.projectID.contains(",")) {
+    		//Runs on a collection of networks.
+    		String[] networks = arguments.projectID.split(",");
+    		CSV += SocialNetworkBuilder.performFunctionsOnSome(networks,
+    				arguments.output, arguments.iterations);
     	} else {
     		//Runs the analysis on some specified network.
     		CSV += SocialNetworkBuilder.performFunctions(arguments.projectID, 
