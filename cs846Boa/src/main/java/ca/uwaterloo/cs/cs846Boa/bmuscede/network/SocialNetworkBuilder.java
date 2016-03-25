@@ -1,14 +1,17 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.network;
 
+import org.apache.commons.math3.stat.StatUtils;
 import org.apache.commons.math3.stat.correlation.*;
+import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
+import org.apache.commons.math3.stat.descriptive.rank.Median;
 import org.apache.commons.math3.stat.inference.TTest;
-
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,7 +85,12 @@ public class SocialNetworkBuilder {
 	private final static int MAX_CORR = 5;
 	private final int NUM_REGRESS_ITER = 100;
 	
-
+	//Holds values over all data.
+	//(ONLY PRINTS WHEN DOING BATCH).
+	private static double[][][] corr;
+	private static double[][] PR;
+	private static int projNum = 0;
+	
 	public static String performFunctionsOnAll(String output, int iterations) {		
 		long startTime = System.currentTimeMillis();
 		
@@ -108,10 +116,14 @@ public class SocialNetworkBuilder {
 	    	return "";
 	    }
 	    
+		//Clears the arrays that hold average.
+		resetArrays(results.size(), iterations);
+		
 	    //Next, we iterate through all the IDs and run our program on it.
 	    String csv = "";
 	    for (String ID : results){
 	    	performFunctions(ID, output, iterations);
+	    	projNum++;
 	    }
 	    
 	    System.out.println("All " + results.size() + " projects " +
@@ -123,11 +135,18 @@ public class SocialNetworkBuilder {
 	public static String performFunctionsOnSome(String[] networks, String output, int iterations) {		
 		long startTime = System.currentTimeMillis();
 		
+		//Clears the arrays that hold average.
+		resetArrays(networks.length, iterations);
+		
 		//Simply loop through all the networks.
 		String csv = "";
 		for (String ID : networks){
 			csv += performFunctions(ID, output, iterations);
+			projNum++;
 		}
+		
+		//Prints out the final values.
+		csv += computeFinalStats();
 		
 		System.out.println("All " + networks.length + " projects " +
 				"analyzed in " + 
@@ -165,7 +184,7 @@ public class SocialNetworkBuilder {
     	
     	//Returns the final result.
     	System.out.println("Generating CSV text...");
-    	String CSV = generateCSV(ID, spearman, pR);
+    	String CSV = generateCSV(ID, projNum, iterations, spearman, pR);
     	
     	System.out.println("Project #" + ID + " analyzed in " + 
     			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
@@ -298,7 +317,6 @@ public class SocialNetworkBuilder {
 			if (act.getType() == ActorType.USER) continue;
 		
 			//Now we get all the centrality metrics and set them as a features.
-			//TODO Several things. Add in normalization and set some sort of label.
 			Double betweenCentrality = betweenScore.get(act);
 			Double closeCentrality = closeScore.get(act);
 			Double degreeCentrality = degreeScore.get(act);
@@ -360,7 +378,8 @@ public class SocialNetworkBuilder {
 				//Performs Spearmans correlation.
 				correlation[i][j] = corr.correlation(xCol[i], yCol[j]);
 				correlation[i + MAX_CORR][j + MAX_CORR] = 
-						corrTest.pairedTTest(xCol[i], yCol[j]);
+						corrTest.pairedTTest(xCol[i], yCol[j], 0.01) ? 1d :
+							0d;
 			}
 		}
 		
@@ -559,25 +578,39 @@ public class SocialNetworkBuilder {
 	}
 	
 	private static String 
-		generateCSV(String ID, double[][] spearman, double[][] PR){
+		generateCSV(String ID, int num, int iterations, 
+				double[][] spearman, double[][] PR){
 		String output = "Project #" + ID + ":\n";
 		
 		//Prints the Spearman correlations.
 		output += "Spearman - \n";
-		output += printSpearman(spearman);
+		output += printSpearman(num, spearman);
 		
 		//Prints the Precision and Recall values.
 		output += "Precision & Recall - \n";
+		DescriptiveStatistics calcPre = new DescriptiveStatistics();
+		DescriptiveStatistics calcRec = new DescriptiveStatistics();
+		Median med = new Median();
 		for (int i = 0; i < PR[0].length; i++){
 			output += i + "," + PR[0][i] + "," + PR[1][i] + "\n";
+			calcPre.addValue(PR[0][i]);
+			calcRec.addValue(PR[1][i]);
+			PR[0][(num * iterations) + i] = PR[0][i];
+			PR[1][(num * iterations) + i] = PR[1][i];
 		}
+		output += "Mean" + "," + calcPre.getMean() + ","
+			+ "," + calcRec.getMean() + "\n";
+		output += "Mode" + "," + med.evaluate(PR[0]) + ","
+				+ "," + med.evaluate(PR[1]) + "\n";
+		output += "Standard Dev." + "," + calcPre.getStandardDeviation() + ","
+				+ "," + calcRec.getStandardDeviation() + "\n";
 		output += "-,-,-,-";
 		
 		//Returns the output.
 		return output;
 	}
 	
-	private static String printSpearman(double[][] spearman){
+	private static String printSpearman(int projNum, double[][] spearman){
 		String output = "";
 		
 		//First, print out the correlations.
@@ -595,6 +628,7 @@ public class SocialNetworkBuilder {
 				} else {
 					//Print the value.
 					line += spearman[i][j];
+					corr[i][j][projNum] = spearman[i][j];
 				}
 				
 				//Adds in the ,
@@ -607,16 +641,16 @@ public class SocialNetworkBuilder {
 		}
 		
 		//Next, print out the p-values.
-		for (int i = MAX_CORR; i < MAX_CORR * 2; i++){
+		for (int i = (MAX_CORR - 1); i < MAX_CORR * 2; i++){
 			String line = "";
-			for (int j = MAX_CORR; j < MAX_CORR * 2; j++){
+			for (int j = (MAX_CORR - 1); j < MAX_CORR * 2; j++){
 				//Checks if we're printing the labels.
-				if (i == MAX_CORR && j == MAX_CORR){
+				if (i == (MAX_CORR - 1) && j == (MAX_CORR) - 1){
 					line += ",";
 					continue;
-				} else if (i == MAX_CORR){
+				} else if (i == (MAX_CORR - 1)){
 					line += ColumnType.labelFor(j - MAX_CORR);
-				} else if (j == MAX_CORR){
+				} else if (j == (MAX_CORR - 1)){
 					line += ColumnType.labelFor(i - MAX_CORR);
 				} else {
 					//Print the value.
@@ -632,5 +666,85 @@ public class SocialNetworkBuilder {
 			output += line + "\n";
 		}
 		return output;
+	}
+	
+	private static void resetArrays(int numProj, int iterations){
+		//Resets stats values.
+		corr = new double[MAX_CORR][MAX_CORR][numProj];
+		
+		//Fills them.
+		for (int i = 0; i < MAX_CORR; i++){
+			for (int j = 0; j < MAX_CORR; j++){
+				Arrays.fill(corr[i][j], 0d);
+			}
+		}
+		
+		//Resets PR values.
+		PR = new double[2][iterations * numProj];
+		
+		//Fills them.
+		for (int i = 0; i < 2; i++){
+			Arrays.fill(PR[i], 0d);
+		}
+	}
+	
+	private static String computeFinalStats(){
+		String csv = "Final Spearman Statistics (Mean, Median, Std Dev) - \n";
+		DescriptiveStatistics dev = new DescriptiveStatistics();
+		Median med = new Median();
+		
+		//We want to compute the final stats
+		for (int i = -1; i < MAX_CORR; i++){
+			String line = "";
+			for (int j = -1; j < MAX_CORR; j++){
+				//Checks if we're printing the labels.
+				if (i == -1 && j == -1){
+					line += ",";
+					continue;
+				} else if (i == -1){
+					line += ColumnType.labelFor(j);
+				} else if (j == -1){
+					line += ColumnType.labelFor(i);
+				} else {
+					//Adds the number in for standard deviation.
+					for (double num : corr[i][j])
+						dev.addValue(num);
+					
+					//Print the value.
+					line += StatUtils.mean(corr[i][j]) + " " +
+							med.evaluate(corr[i][j]) + " " +
+							dev.getStandardDeviation();
+					dev.clear();
+				}
+				
+				//Adds in the ,
+				if (j < MAX_CORR - 1)
+					line += ",";
+			}
+					
+			//Flushes output.
+			csv += line + "\n";
+		}
+		
+		//Next, computes the precision and recall values.
+		csv += "Final Precision & Recall - \n";
+		csv += "Mean" + "," + StatUtils.mean(PR[0]) + "," +
+				StatUtils.mean(PR[1]) + "\n";
+		csv += "Median" + "," + med.evaluate(PR[0]) + "," +
+				med.evaluate(PR[1]) + "\n";
+		for (int i = 0; i < PR[0].length; i++){
+			dev.addValue(PR[0][i]);
+		}
+		csv += "Std Dev" + "," + dev.getStandardDeviation();
+		dev.clear();
+		for (int i = 0; i < PR[1].length; i++){
+			dev.addValue(PR[1][i]);
+		}
+		csv += "," + dev.getStandardDeviation() + "\n";
+
+		//Resets the project number.
+		projNum = 0;
+		
+		return csv;
 	}
 }

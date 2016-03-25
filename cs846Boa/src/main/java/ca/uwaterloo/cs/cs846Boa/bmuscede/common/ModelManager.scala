@@ -93,7 +93,7 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     
     //Loads the labeled points.
     val data = sc.parallelize(points)
-      .randomSplit(Array(trainingSplit, 100 - trainingSplit), 11L)
+      .randomSplit(Array(trainingSplit, 100 - trainingSplit))
     
     //Now, computes the training and test RDDs.
     val training = data(0).cache()
@@ -109,26 +109,26 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
        val score = model.predict(svmPoint.features)
        
        (if (score > 0) 1d else 0d, svmPoint.label)
-    }).persist()
+    })
     
     //Computes precision and recall.
     val precision = scores
       .mapPartitions(predictions => {
-        var correct = 0
-        var falsePos = 0
-        var falseNeg = 0
+        var corr = 0
+        var fP = 0
+        var fN = 0
         
         //Iterate through all the predictions.
         while (predictions.hasNext){
           val next = predictions.next()
           
           //Make a prediction classifier.
-          if (next._1 == next._2) correct += 1
-          else if (next._1 > next._2) falsePos += 1
-          else falseNeg += 1
+          if (next._1 == next._2) corr += 1
+          else if (next._1 > next._2) fP += 1
+          else fN += 1
         }
         //Iterate through all the predictions.
-        val list = Array((correct, falsePos, falseNeg))
+        val list = Array((corr, fP, fN))
         list.toIterator
       }).collect()
     correct.put(itNum, precision(0)._1)
