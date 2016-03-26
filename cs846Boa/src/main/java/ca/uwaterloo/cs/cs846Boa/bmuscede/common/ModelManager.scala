@@ -108,7 +108,7 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     val scores = testing.map(svmPoint => {
        val score = model.predict(svmPoint.features)
        
-       (if (score > 0) 1d else 0d, svmPoint.label)
+       ((if (score > 0.5) 1d else 0d), svmPoint.label)
     })
     
     //Computes precision and recall.

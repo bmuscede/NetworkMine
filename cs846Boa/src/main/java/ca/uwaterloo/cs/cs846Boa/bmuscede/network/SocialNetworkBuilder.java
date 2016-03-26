@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.collections15.Transformer;
+import org.apache.commons.lang.ArrayUtils;
 import org.apache.spark.mllib.linalg.Vectors;
 import org.apache.spark.mllib.regression.LabeledPoint;
 import ca.uwaterloo.cs.cs846Boa.bmuscede.common.ModelManager;
@@ -310,6 +311,25 @@ public class SocialNetworkBuilder {
 			computeDegreeCentrality();
 		}
 		
+		//Develop our bug threshold.
+		ArrayList<Double> bugs = new ArrayList<Double>();
+		for(Actor act : network.getVertices()){
+			//Converts to file actor.
+			if (act.getType() == ActorType.USER) continue;
+			FileActor file = (FileActor) act;
+			
+			//Gets the current bug threshold.
+			bugs.add((double) file.getBugFixes() / file.getCommits());
+		}
+		double[] bugSorted = ArrayUtils.toPrimitive(bugs.toArray(new Double[bugs.size()]));
+		Arrays.sort(bugSorted);
+		double threshold = (new Median()).evaluate(bugSorted);
+		
+		//Next, we normalize the other variables.
+		Map<Actor, Double> betweenNorm = normalize(betweenScore);
+		Map<Actor, Double> closeNorm = normalize(closeScore);
+		Map<Actor, Double> degreeNorm = normalize(degreeScore);
+		
 		//First we transform our dataset.
 		List<LabeledPoint> metricEntry = new ArrayList<LabeledPoint>();
 		for (Actor act : network.getVertices()){
@@ -317,14 +337,14 @@ public class SocialNetworkBuilder {
 			if (act.getType() == ActorType.USER) continue;
 		
 			//Now we get all the centrality metrics and set them as a features.
-			Double betweenCentrality = betweenScore.get(act);
-			Double closeCentrality = closeScore.get(act);
-			Double degreeCentrality = degreeScore.get(act);
+			Double betweenCentrality = betweenNorm.get(act);
+			Double closeCentrality = closeNorm.get(act);
+			Double degreeCentrality = degreeNorm.get(act);
 			
 			//Get the label.
 			FileActor file = (FileActor) act;
 			double bugProportion = (double) file.getBugFixes() / file.getCommits();
-			int label = (bugProportion > 0.2) ? 1 : 0;
+			int label = (bugProportion > threshold) ? 1 : 0;
 			
 			//Adds the feature.
 			metricEntry.add(new LabeledPoint
@@ -344,6 +364,30 @@ public class SocialNetworkBuilder {
 		return prResults;
 	}
 	
+	private Map<Actor, Double> normalize(Map<Actor, Double> score) {
+		//Build a new map.
+		Map<Actor, Double> normMap = new HashMap<Actor, Double>();
+		double[] values = new double[score.size()];
+		
+		//Iterate through our old map.
+		int i = 0;
+		for (Map.Entry<Actor, Double> entry : score.entrySet()){
+			values[i++] = entry.getValue();
+		}
+		
+		//Get the min and max.
+		double min = StatUtils.min(values);
+		double max = StatUtils.max(values);
+		
+		//Adds to the new map.
+		for (Map.Entry<Actor, Double> entry : score.entrySet()){
+			double norm = ((entry.getValue() - min) / (min + max));
+			normMap.put(entry.getKey(), norm);
+		}
+		
+		return normMap;
+	}
+
 	public double[][] performSpearmanCorrelation(){
 		double[][] xCol, yCol;
 		double[][] correlation = new double[MAX_CORR*2][MAX_CORR*2];
@@ -595,16 +639,22 @@ public class SocialNetworkBuilder {
 			output += i + "," + PR[0][i] + "," + PR[1][i] + "\n";
 			calcPre.addValue(PR[0][i]);
 			calcRec.addValue(PR[1][i]);
-			PR[0][(num * iterations) + i] = PR[0][i];
-			PR[1][(num * iterations) + i] = PR[1][i];
+			if (SocialNetworkBuilder.PR != null){
+				SocialNetworkBuilder.PR[0][(num * iterations) + i] = PR[0][i];
+				SocialNetworkBuilder.PR[1][(num * iterations) + i] = PR[1][i];
+			}
 		}
+		
+		//Outputs average.
+		Arrays.sort(PR[0]);
+		Arrays.sort(PR[1]);
 		output += "Mean" + "," + calcPre.getMean() + ","
 			+ "," + calcRec.getMean() + "\n";
-		output += "Mode" + "," + med.evaluate(PR[0]) + ","
+		output += "Median" + "," + med.evaluate(PR[0]) + ","
 				+ "," + med.evaluate(PR[1]) + "\n";
 		output += "Standard Dev." + "," + calcPre.getStandardDeviation() + ","
 				+ "," + calcRec.getStandardDeviation() + "\n";
-		output += "-,-,-,-";
+		output += "-,-,-,-\n";
 		
 		//Returns the output.
 		return output;
@@ -628,7 +678,8 @@ public class SocialNetworkBuilder {
 				} else {
 					//Print the value.
 					line += spearman[i][j];
-					corr[i][j][projNum] = spearman[i][j];
+					if (corr != null)
+						corr[i][j][projNum] = spearman[i][j];
 				}
 				
 				//Adds in the ,
@@ -727,6 +778,8 @@ public class SocialNetworkBuilder {
 		}
 		
 		//Next, computes the precision and recall values.
+		Arrays.sort(PR[0]);
+		Arrays.sort(PR[1]);
 		csv += "Final Precision & Recall - \n";
 		csv += "Mean" + "," + StatUtils.mean(PR[0]) + "," +
 				StatUtils.mean(PR[1]) + "\n";
