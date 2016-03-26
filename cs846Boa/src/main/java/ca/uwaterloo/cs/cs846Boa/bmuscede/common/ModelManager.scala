@@ -4,6 +4,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.RDD
 import scala.collection.mutable.Map
+import scala.collection.mutable.ListBuffer
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.mllib.classification.{SVMModel, SVMWithSGD}
 import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
@@ -27,6 +28,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
   var MODEL_SAVE = "model_"
   var TEST_SAVE = "test_"
   
+  //Threshold value
+  var threshold = 0d
+  
   //Create the Spark context and conf
   val conf = new SparkConf()
     .setAppName("Logical Regression: Model")
@@ -41,8 +45,10 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     falseNeg.clear()
     
     //We simply run the regression program a certain number of times.
+    threshold = generateThreshold(input)
     for (i <- 1 to iterations){
-      regressionRunner(input, genSaveLoc + "/" + MODEL_SAVE + i.toString(),
+      regressionRunner(input, threshold,
+          genSaveLoc + "/" + MODEL_SAVE + i.toString(),
           genSaveLoc + "/" + TEST_SAVE + i.toString(), i);
     }
   }
@@ -55,7 +61,8 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     falseNeg.clear()
     
     //Runs the regression
-    regressionRunner(input, mSave, tSave, 1);
+    val threshold = generateThreshold(input)
+    regressionRunner(input, threshold, mSave, tSave, 1);
   }
   
   def getPrecision() : Array[Double] = {
@@ -82,8 +89,71 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     return recall
   }
   
+  def getThreshold() : Double = {
+    return threshold  
+  }
+  
+  private def generateThreshold(input: java.util.List[LabeledPoint]) : Double = {
+    val points = asScalaBuffer(input).toList
+    
+    //Loads the labeled points into an RDD.
+    val data = sc.parallelize(points)
+      .randomSplit(Array(trainingSplit, 100 - trainingSplit)) 
+    
+    //Now, computes the training and test RDDs.
+    val training = data(0).cache()
+    val testing = data(1)
+    
+    //Uses logical regression to compute the model.
+    val model = SVMWithSGD.train(training, iter)
+      .clearThreshold()
+      
+    //Uses this model to predict.
+    //Tuple in the form of (score, label)
+    val scores = testing.map(svmPoint => {
+       val rawScore = model.predict(svmPoint.features)
+       
+       (rawScore, svmPoint.label)
+    })
+    
+    //Finds a classifier.
+    val results = new BinaryClassificationMetrics(scores)
+    val prec = results.precisionByThreshold().collect()
+    val rec = results.recallByThreshold().collect()
+    
+    //Combines the values.
+    val list = for (i <- 0 to (prec.size - 1)) yield {
+      //Gets the current precision.  
+      val currentPrec = prec(i)
+        
+      //Checks to see if the recall exists for this.
+      var currentRec : (Double, Double) = null;
+      for (item <- rec){
+        if (item._1 == currentPrec._1)
+          currentRec = item
+      }
+      
+      //Emits the result.
+      (currentPrec._1, currentPrec._2, currentRec._2)
+    }
+    
+    //We now find the maximum threshold.
+    var threshold = 0d
+    var maxVal = 0d
+    for (item <- list){
+      val itemAvg = (item._2 + item._3) / 2
+      if (itemAvg > maxVal){
+        threshold = item._1
+        maxVal = itemAvg
+      }
+    }
+
+    System.out.println("Current Threshold: " + threshold);
+    return threshold
+  }
+  
   private def regressionRunner(
-      input: java.util.List[LabeledPoint],
+      input: java.util.List[LabeledPoint], threshold: Double,
       mSave: String = "", tSave: String = "", itNum : Int) = {
     val points = asScalaBuffer(input).toList
     
@@ -101,18 +171,18 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     
     //Uses logical regression to compute the model.
     val model = SVMWithSGD.train(training, iter)
-      .clearThreshold()
+      .setThreshold(threshold)
     
     //Uses this model to predict.
     //Tuple in the form of (score, label)
     val scores = testing.map(svmPoint => {
        val score = model.predict(svmPoint.features)
        
-       ((if (score > 0.5) 1d else 0d), svmPoint.label)
+       (score, svmPoint.label)
     })
-    
+      
     //Computes precision and recall.
-    val precision = scores
+    val prediction = scores
       .mapPartitions(predictions => {
         var corr = 0
         var fP = 0
@@ -131,9 +201,9 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
         val list = Array((corr, fP, fN))
         list.toIterator
       }).collect()
-    correct.put(itNum, precision(0)._1)
-    falsePos.put(itNum, precision(0)._2)
-    falseNeg.put(itNum, precision(0)._3)
+    correct.put(itNum, prediction(0)._1)
+    falsePos.put(itNum, prediction(0)._2)
+    falseNeg.put(itNum, prediction(0)._3)
     
     //Saves the testing data.
     if (testSaveLoc != "")

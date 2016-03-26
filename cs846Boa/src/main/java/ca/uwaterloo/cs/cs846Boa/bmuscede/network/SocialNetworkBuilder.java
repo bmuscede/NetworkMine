@@ -91,6 +91,7 @@ public class SocialNetworkBuilder {
 	private static double[][][] corr;
 	private static double[][] PR;
 	private static int projNum = 0;
+	private static double finalThreshold;
 	
 	public static String performFunctionsOnAll(String output, int iterations) {		
 		long startTime = System.currentTimeMillis();
@@ -199,6 +200,7 @@ public class SocialNetworkBuilder {
 		
 		//Creates the logicstic regression parameter.
 		manager = new ModelManager(60f, NUM_REGRESS_ITER);
+		finalThreshold = 0;
 	}
 	
 	private void refresh(){
@@ -360,6 +362,7 @@ public class SocialNetworkBuilder {
 		double[][] prResults = new double[2][iterations];
 		prResults[0] = manager.getPrecision();
 		prResults[1] = manager.getRecall();
+		finalThreshold = manager.getThreshold();
 		
 		return prResults;
 	}
@@ -632,6 +635,7 @@ public class SocialNetworkBuilder {
 		
 		//Prints the Precision and Recall values.
 		output += "Precision & Recall - \n";
+		output += "Threshold," + finalThreshold + "\n";
 		DescriptiveStatistics calcPre = new DescriptiveStatistics();
 		DescriptiveStatistics calcRec = new DescriptiveStatistics();
 		Median med = new Median();
@@ -649,11 +653,11 @@ public class SocialNetworkBuilder {
 		Arrays.sort(PR[0]);
 		Arrays.sort(PR[1]);
 		output += "Mean" + "," + calcPre.getMean() + ","
-			+ "," + calcRec.getMean() + "\n";
+			+ calcRec.getMean() + "\n";
 		output += "Median" + "," + med.evaluate(PR[0]) + ","
-				+ "," + med.evaluate(PR[1]) + "\n";
+				+ med.evaluate(PR[1]) + "\n";
 		output += "Standard Dev." + "," + calcPre.getStandardDeviation() + ","
-				+ "," + calcRec.getStandardDeviation() + "\n";
+				+ calcRec.getStandardDeviation() + "\n";
 		output += "-,-,-,-\n";
 		
 		//Returns the output.
