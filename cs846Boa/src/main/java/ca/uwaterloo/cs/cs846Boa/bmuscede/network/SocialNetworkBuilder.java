@@ -5,6 +5,9 @@ import org.apache.commons.math3.stat.correlation.*;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.apache.commons.math3.stat.descriptive.rank.Median;
 import org.apache.commons.math3.stat.inference.TTest;
+
+import java.io.File;
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -16,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.collections15.Transformer;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.spark.mllib.linalg.Vectors;
 import org.apache.spark.mllib.regression.LabeledPoint;
@@ -93,7 +97,8 @@ public class SocialNetworkBuilder {
 	private static int projNum = 0;
 	private static double finalThreshold;
 	
-	public static String performFunctionsOnAll(String output, int iterations) {		
+	public static String performFunctionsOnAll(String output, String csvOut, 
+			int iterations) {		
 		long startTime = System.currentTimeMillis();
 		
 		//Pulls a list of all projects from the database.
@@ -124,7 +129,7 @@ public class SocialNetworkBuilder {
 	    //Next, we iterate through all the IDs and run our program on it.
 	    String csv = "";
 	    for (String ID : results){
-	    	performFunctions(ID, output, iterations);
+	    	performFunctions(ID, csvOut, output, iterations);
 	    	projNum++;
 	    }
 	    
@@ -134,7 +139,8 @@ public class SocialNetworkBuilder {
 	    return csv;
 	}
 	
-	public static String performFunctionsOnSome(String[] networks, String output, int iterations) {		
+	public static String performFunctionsOnSome(String[] networks, 
+			String csvOut, String output, int iterations) {		
 		long startTime = System.currentTimeMillis();
 		
 		//Clears the arrays that hold average.
@@ -143,7 +149,7 @@ public class SocialNetworkBuilder {
 		//Simply loop through all the networks.
 		String csv = "";
 		for (String ID : networks){
-			csv += performFunctions(ID, output, iterations);
+			csv += performFunctions(ID, csvOut, output, iterations);
 			projNum++;
 		}
 		
@@ -156,7 +162,8 @@ public class SocialNetworkBuilder {
 		return csv;
 	}
 	
-	public static String performFunctions(String ID, String output, int iterations){
+	public static String performFunctions(String ID, String csvOut,
+			String output, int iterations){
 		long startTime = System.currentTimeMillis();
 		
 		//Creates an instance of the social network builder.
@@ -186,7 +193,7 @@ public class SocialNetworkBuilder {
     	
     	//Returns the final result.
     	System.out.println("Generating CSV text...");
-    	String CSV = generateCSV(ID, projNum, iterations, spearman, pR);
+    	String CSV = generateCSV(ID, csvOut, projNum, iterations, spearman, pR);
     	
     	System.out.println("Project #" + ID + " analyzed in " + 
     			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
@@ -625,7 +632,7 @@ public class SocialNetworkBuilder {
 	}
 	
 	private static String 
-		generateCSV(String ID, int num, int iterations, 
+		generateCSV(String ID, String csvOut, int num, int iterations, 
 				double[][] spearman, double[][] PR){
 		String output = "Project #" + ID + ":\n";
 		
@@ -660,6 +667,18 @@ public class SocialNetworkBuilder {
 				+ calcRec.getStandardDeviation() + "\n";
 		output += "-,-,-,-\n";
 		
+		//Checks if we generate at each step.
+		if (!csvOut.equals("")){
+	    	//Outputs the CSV.
+	    	try {
+	    		csvOut = csvOut.replace("<PLACEHOLDER>", ID);
+				FileUtils.writeStringToFile(new File(csvOut), 
+						output);
+			} catch (IOException e) {
+				System.err.println("CSV generated but could not be written to the"
+						+ " file " + csvOut + "!");
+			}
+		}
 		//Returns the output.
 		return output;
 	}

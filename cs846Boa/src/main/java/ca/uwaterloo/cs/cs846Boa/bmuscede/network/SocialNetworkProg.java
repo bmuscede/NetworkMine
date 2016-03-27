@@ -18,9 +18,14 @@ public class SocialNetworkProg {
         		required = true, usage = "The directory for the regression output")
         public String output;
         
+        //The output of the final filename.
         @Option(name = "-csvOut", metaVar = "[name]",
         		required = true, usage = "The output file for the CSV generated.")
         public String csvOut;
+        
+        @Option(name = "-csvFlag",
+        		required = false, usage = "Whether we output each step.")
+        public boolean csvFlag = false;
         
         //The number of regression iterations.
         @Option(name = "-iterations", metaVar = "[num]", 
@@ -43,21 +48,27 @@ public class SocialNetworkProg {
     		return;
     	}
     	
+    	String csvOut = "";
+    	if (arguments.csvFlag){
+    		csvOut = arguments.csvOut;
+    		csvOut = "<PLACEHOLDER>_" + csvOut;
+    	}
+    	
     	//Checks the project ID flag.
     	String CSV = "";
     	if (arguments.projectID.equals("all")){
     		//Runs the analysis on ALL networks.
     		CSV += SocialNetworkBuilder.performFunctionsOnAll(arguments.output, 
-    				arguments.iterations);
+    				csvOut, arguments.iterations);
     	} else if (arguments.projectID.contains(",")) {
     		//Runs on a collection of networks.
     		String[] networks = arguments.projectID.split(",");
     		CSV += SocialNetworkBuilder.performFunctionsOnSome(networks,
-    				arguments.output, arguments.iterations);
+    				csvOut, arguments.output, arguments.iterations);
     	} else {
     		//Runs the analysis on some specified network.
     		CSV += SocialNetworkBuilder.performFunctions(arguments.projectID, 
-    				arguments.output, arguments.iterations);
+    				csvOut, arguments.output, arguments.iterations);
     	}
     	
     	//Checks for failures.

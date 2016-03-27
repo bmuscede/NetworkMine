@@ -12,6 +12,8 @@ import org.apache.spark.mllib.regression.LabeledPoint
 import scala.collection.JavaConversions.asScalaBuffer
 
 class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
+  val DEFAULT_THRESHOLD = 0.25
+  
   val split = trainingSplit
   val iter = iterations
   
@@ -45,7 +47,8 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     falseNeg.clear()
     
     //We simply run the regression program a certain number of times.
-    threshold = generateThreshold(input)
+    //threshold = generateThreshold(input)
+    threshold = DEFAULT_THRESHOLD
     for (i <- 1 to iterations){
       regressionRunner(input, threshold,
           genSaveLoc + "/" + MODEL_SAVE + i.toString(),
@@ -61,7 +64,8 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     falseNeg.clear()
     
     //Runs the regression
-    val threshold = generateThreshold(input)
+    //val threshold = generateThreshold(input)
+    threshold = DEFAULT_THRESHOLD
     regressionRunner(input, threshold, mSave, tSave, 1);
   }
   
@@ -93,7 +97,7 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     return threshold  
   }
   
-  private def generateThreshold(input: java.util.List[LabeledPoint]) : Double = {
+  /*private def generateThreshold(input: java.util.List[LabeledPoint]) : Double = {
     val points = asScalaBuffer(input).toList
     
     //Loads the labeled points into an RDD.
@@ -119,10 +123,12 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     //Finds a classifier.
     val results = new BinaryClassificationMetrics(scores)
     val prec = results.precisionByThreshold().collect()
+      .sortBy(value => value._1)
     val rec = results.recallByThreshold().collect()
-    
+    .sortBy(value => value._1)
+
     //Combines the values.
-    val list = for (i <- 0 to (prec.size - 1)) yield {
+    var list = for (i : Int <- (0 to (prec.size - 1)).toBuffer) yield {
       //Gets the current precision.  
       val currentPrec = prec(i)
         
@@ -139,18 +145,51 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     
     //We now find the maximum threshold.
     var threshold = 0d
-    var maxVal = 0d
-    for (item <- list){
-      val itemAvg = (item._2 + item._3) / 2
-      if (itemAvg > maxVal){
-        threshold = item._1
-        maxVal = itemAvg
+    var maxPrec = 0d
+    var maxPrecLoc = -1
+    var maxRec = 0d
+    var maxRecLoc = -1
+    
+    var i = 0
+    while (threshold == 0d){
+      //Find maximum of both.
+      for (item <- list){ 
+        if(item._2 > maxPrec){
+          maxPrec = item._2
+          maxPrecLoc = i
+        }
+        if(item._3 > maxRec){
+          maxRec = item._2
+          maxRecLoc = i
+        }
+        
+        i = i + 1
       }
+      
+      //Check if the values match.
+      if (maxRecLoc == maxPrecLoc){
+          threshold = list(maxPrecLoc)._1
+      } else {
+        if (maxPrecLoc > maxRecLoc){
+          list.remove(maxPrecLoc)
+          list.remove(maxRecLoc)
+        } else {
+          list.remove(maxRecLoc)
+          list.remove(maxPrecLoc)
+        }
+      }
+      
+      //Reset values.
+      maxPrec = 0d
+      maxPrecLoc = -1
+      maxRec = 0d
+      maxRecLoc = -1
+      i = 0
     }
 
-    System.out.println("Current Threshold: " + threshold);
+
     return threshold
-  }
+  }*/
   
   private def regressionRunner(
       input: java.util.List[LabeledPoint], threshold: Double,
