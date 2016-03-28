@@ -210,8 +210,8 @@ class ModelManager(trainingSplit: Float = 60f, iterations: Integer = 100) {
     
     //Uses logical regression to compute the model.
     val model = SVMWithSGD.train(training, iter)
-      .setThreshold(threshold)
-    
+      .setThreshold(0)
+      
     //Uses this model to predict.
     //Tuple in the form of (score, label)
     val scores = testing.map(svmPoint => {

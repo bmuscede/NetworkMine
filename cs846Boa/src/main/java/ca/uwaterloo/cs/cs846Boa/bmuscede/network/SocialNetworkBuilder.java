@@ -212,7 +212,7 @@ public class SocialNetworkBuilder {
 	
 	private void refresh(){
 		betweenScore = new HashMap<Actor, Double>();
-		closeScore = new HashMap<Actor, Double>();
+		//closeScore = new HashMap<Actor, Double>();
 		degreeScore = new HashMap<Actor, Double>();
 		
 		//Initializes the graph.
@@ -313,9 +313,9 @@ public class SocialNetworkBuilder {
 		if (betweenScore.size() == 0){
 			computeBetweennessCentrality();
 		}
-		if (closeScore.size() == 0){
-			computeClosenessCentrality();
-		}
+		//if (closeScore.size() == 0){
+			//computeClosenessCentrality();
+		//}
 		if (degreeScore.size() == 0){
 			computeDegreeCentrality();
 		}
@@ -377,6 +377,24 @@ public class SocialNetworkBuilder {
 	private Map<Actor, Double> normalize(Map<Actor, Double> score) {
 		//Build a new map.
 		Map<Actor, Double> normMap = new HashMap<Actor, Double>();
+		Actor[] actors = new Actor[score.size()];
+		double[] values = new double[score.size()];
+		
+		int i = 0;
+		for (Map.Entry<Actor, Double> entry : score.entrySet()){
+			actors[i] = entry.getKey();
+			values[i] = entry.getValue();
+			i++;
+		}
+		
+		values = StatUtils.normalize(values);
+		
+		for (int j = 0; j < values.length; j++)
+			normMap.put(actors[j], values[j]);
+		
+		return normMap;
+		//Build a new map.
+		/*Map<Actor, Double> normMap = new HashMap<Actor, Double>();
 		double[] values = new double[score.size()];
 		
 		//Iterate through our old map.
@@ -395,7 +413,7 @@ public class SocialNetworkBuilder {
 			normMap.put(entry.getKey(), norm);
 		}
 		
-		return normMap;
+		return normMap;*/
 	}
 
 	public double[][] performSpearmanCorrelation(){
