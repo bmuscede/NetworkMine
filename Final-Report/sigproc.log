@@ -1,0 +1,25 @@
+This is pdfTeX, Version 3.14159265-2.6-1.40.16 (MiKTeX 2.9) (preloaded format=pdftex 2016.3.28)  28 MAR 2016 21:13
+entering extended mode
+**"C:/Users/Bryan/OneDrive/School Work/CS846/cs846-project/Final-Report/sigproc
+.bib"
+
+("C:/Users/Bryan/OneDrive/School Work/CS846/cs846-project/Final-Report/sigproc.
+bib"
+! Missing $ inserted.
+<inserted text> 
+                $
+<to be read again> 
+                   _
+l.1 @BOOK{hanneman:network_
+                           methods,
+? 
+! Emergency stop.
+<inserted text> 
+                $
+<to be read again> 
+                   _
+l.1 @BOOK{hanneman:network_
+                           methods,
+End of file on the terminal!
+
+!  ==> Fatal error occurred, no output PDF file produced!
