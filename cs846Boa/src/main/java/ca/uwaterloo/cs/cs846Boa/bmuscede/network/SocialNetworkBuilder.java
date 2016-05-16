@@ -1,11 +1,5 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.network;
 
-import org.apache.commons.math3.stat.StatUtils;
-import org.apache.commons.math3.stat.correlation.*;
-import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
-import org.apache.commons.math3.stat.descriptive.rank.Median;
-import org.apache.commons.math3.stat.inference.TTest;
-
 import java.io.File;
 import java.io.IOException;
 import java.sql.Connection;
@@ -16,18 +10,26 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+
 import org.apache.commons.collections15.Transformer;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.ArrayUtils;
-import org.apache.spark.mllib.linalg.Vectors;
-import org.apache.spark.mllib.regression.LabeledPoint;
-import ca.uwaterloo.cs.cs846Boa.bmuscede.common.ModelManager;
+import org.apache.commons.math3.stat.StatUtils;
+import org.apache.commons.math3.stat.correlation.SpearmansCorrelation;
+import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
+import org.apache.commons.math3.stat.descriptive.rank.Median;
+import org.apache.commons.math3.stat.inference.TTest;
+
+import ca.uwaterloo.cs.cs846Boa.bmuscede.common.MLAnalysis;
 import ca.uwaterloo.cs.cs846Boa.bmuscede.network.Actor.ActorType;
+import ca.uwaterloo.cs.cs846Boa.bmuscede.network.NetworkMetrics.MachineLearning;
+import ca.uwaterloo.cs.cs846Boa.bmuscede.network.NetworkMetrics.SocialMetrics;
+import ca.uwaterloo.cs.cs846Boa.bmuscede.network.PerformAnalysis.StepDescrip;
 import edu.uci.ics.jung.algorithms.scoring.BetweennessCentrality;
 import edu.uci.ics.jung.algorithms.scoring.ClosenessCentrality;
 import edu.uci.ics.jung.algorithms.scoring.DegreeScorer;
+import edu.uci.ics.jung.algorithms.scoring.EigenvectorCentrality;
 import edu.uci.ics.jung.graph.Graph;
 import edu.uci.ics.jung.graph.UndirectedSparseGraph;
 
@@ -35,10 +37,13 @@ public class SocialNetworkBuilder {
 	private enum ColumnType{
 		COMMIT(0, "Commits"),
 		FAILURE(1, "Failures"),
-		BETWEEN(2, "Betweenness Centrality"),
-		CLOSE(3, "Closeness Centrality"),
-		DEGREE(4, "Degree Centrality");
+		F_BETWEENNESS(2, "Freeman Node Betweenness Centrality"),
+		F_CLOSENESS(3, "Freeman Geodesic Closeness Centrality"),
+		R_CLOSENESS(4, "Reachability Closeness Centrality"),
+		F_DEGREE(5, "Freeman Degree Centrality"),
+		BP_DEGREE(6, "Bonacich’s Power Degree Centrality");
 		
+		private static final int TOTAL = 7;
 		private int val;
 		private String lab;
 		
@@ -75,20 +80,23 @@ public class SocialNetworkBuilder {
 	//Social network.
 	private Graph<Actor, Commit> network;
 	
+	//Holds number of metrics being computed.
+	private static int numMetrics = 0;
+	private static ArrayList<SocialMetrics> metricList;
+	
 	//Map to hold centrality.
 	Map<Actor, Double> betweenScore = new HashMap<Actor, Double>();
-	Map<Actor, Double> closeScore = new HashMap<Actor, Double>();
-	Map<Actor, Double> degreeScore = new HashMap<Actor, Double>();
+	Map<Actor, Double> fCloseScore = new HashMap<Actor, Double>();
+	Map<Actor, Double> rCloseScore = new HashMap<Actor, Double>();
+	Map<Actor, Double> fDegreeScore = new HashMap<Actor, Double>();
+	Map<Actor, Double> bpDegreeScore = new HashMap<Actor, Double>();
 	Transformer<Commit, Integer> edgeWeights;
-	
-	//Regression Manager
-	private ModelManager manager;
 	
 	//Final variables.
 	private final static String DB_LOC = "data/boa.db";
 	private final static int TIMEOUT = 30;
-	private final static int MAX_CORR = 5;
-	private final int NUM_REGRESS_ITER = 100;
+	private final double THRESHOLD = 0d;
+	private final static String OUTPUT = "output.csv";
 	
 	//Holds values over all data.
 	//(ONLY PRINTS WHEN DOING BATCH).
@@ -97,12 +105,321 @@ public class SocialNetworkBuilder {
 	private static int projNum = 0;
 	private static double finalThreshold;
 	
-	public static String performFunctionsOnAll(String output, String csvOut, 
-			int iterations) {		
-		long startTime = System.currentTimeMillis();
+	public static void performAnalysisOnAll(PerformAnalysis notify,
+			String csvOut,
+			boolean preContrib, boolean preFiles,
+			ArrayList<SocialMetrics> metrics,
+			boolean spearman, MachineLearning mlType, int iterations, int training){
+		//Creates the thread.
+		Thread t = new Thread() {
+			public void run() {
+				//Pulls a list of all projects from the database.
+				String sql = "SELECT ProjectID FROM Project;";
+				
+				Connection conn = null;
+				Statement state = null;
+				ArrayList<String> results = new ArrayList<String>();
+			    try {
+			    	conn = DriverManager.getConnection("jdbc:sqlite:" + DB_LOC);
+			    	state = conn.createStatement();
+					state.setQueryTimeout(TIMEOUT);
+					
+					//Runs the query to get all project IDs
+					ResultSet rs = state.executeQuery(sql);
+					while (rs.next()){
+						results.add(rs.getString("ProjectID"));
+					}
+				    conn.close();
+			    } catch (SQLException e){
+			    	e.printStackTrace();
+			    	return;
+			    }
+			    
+				//Clears the arrays that hold average.
+			    numMetrics = metrics.size() + 2;
+				resetArrays(spearman, results.size(), iterations);
+				
+			    //Next, we iterate through all the IDs and run our program on it.
+			    String csv = "";
+			    int i = 0;
+			    for (String ID : results){
+			    	outputProject(notify, ID, i, results.size() - 1);
+			    	try {
+						csv += runOnProject(false, notify, ID, csvOut + "//" + 
+								ID + "_" + OUTPUT,
+								preContrib, preFiles, metrics,
+								spearman, mlType, iterations, training);
+					} catch (Exception e) {
+						System.err.println("Failure performing Machine Learning.");
+						System.exit(1);
+					}
+			    	projNum++;
+			    	i++;
+			    }
+			    
+				//Gets the final values.
+				csv += computeFinalStats();
+				
+				//Prints out to a final CSV.
+		    	try {
+					FileUtils.writeStringToFile(new File(csvOut + "//" + OUTPUT), 
+							csv);
+				} catch (IOException e) {
+					System.err.println("CSV generated but could not be written to the"
+							+ " file " + csvOut + "!");
+				}
+		    	
+		    	if (notify != null) notify.informComplete();
+			}
+		};
+		t.start();
+	}
+	
+	public static void performAnalysisOnSome(PerformAnalysis notify,
+			String[] networks, String csvOut,
+			boolean preContrib, boolean preFiles,
+			ArrayList<SocialMetrics> metrics,
+			boolean spearman, MachineLearning mlType, int iterations, int training) {
+		//Creates the thread.
+		Thread t = new Thread() {
+			public void run() {
+				//Clears the arrays that hold average.
+				numMetrics = metrics.size() + 2;
+				resetArrays(spearman, networks.length, iterations);
+				
+				//Simply loop through all the networks.
+				String csv = "";
+			    int i = 0;
+				for (String ID : networks){
+			    	outputProject(notify, ID, i, networks.length - 1);
+			    	try {
+						csv += runOnProject(false, notify, ID, csvOut + "//" + 
+								ID + "_" + OUTPUT, 
+								preContrib, preFiles, metrics,
+								spearman, mlType, iterations, training);
+					} catch (Exception e) {
+						e.printStackTrace();
+						System.err.println("Failure running program.");
+						System.exit(1);
+					}
+			    	projNum++;
+			    	i++;
+				}
+				
+				//Prints out the final values.
+				csv += computeFinalStats();
+				
+		    	try {
+					FileUtils.writeStringToFile(new File(csvOut + "//" + OUTPUT), 
+							csv);
+				} catch (IOException e) {
+					System.err.println("CSV generated but could not be written to the"
+							+ " file " + csvOut + "!");
+				}
+		    	
+		    	if (notify != null) notify.informComplete();
+			}
+		};
+		t.start();
+	}
+	
+	public static void performAnalysis(PerformAnalysis notify,
+			String ID, String csvOut, 
+			boolean preContrib, boolean preFiles,
+			ArrayList<SocialMetrics> metrics,
+			boolean spearman, MachineLearning mlType, int iterations, int training){
+		//Creates the thread.
+		Thread t = new Thread() {
+			public void run() {
+				try {
+					String CSV = runOnProject(true, notify, ID, csvOut,
+						preContrib, preFiles,
+						metrics, spearman, mlType, iterations, training);
+		    	
+					FileUtils.writeStringToFile(new File(csvOut), 
+							CSV);
+				} catch (IOException e) {
+					System.err.println("CSV generated but could not be written to the"
+							+ " file " + csvOut + "!");
+				} catch (Exception e) {
+					e.printStackTrace();
+					System.err.println("Failure performing Machine Learning.");
+					System.exit(1);
+				}
+		    	
+				if (notify != null) notify.informComplete();
+			}
+		};
 		
-		//Pulls a list of all projects from the database.
-		String sql = "SELECT ProjectID FROM Project;";
+		//Starts the thread.
+		t.start();
+	}
+	
+	private static String runOnProject(boolean single, PerformAnalysis notify,
+			String ID, String csvOut,
+			boolean preContrib, boolean preFiles,
+			ArrayList<SocialMetrics> metrics,
+			boolean spearman, MachineLearning mlType, int iterations, int training) 
+			throws Exception{
+		//Sets the number of metrics.
+		numMetrics = metrics.size() + 2;
+		metricList = metrics;
+		
+		//Checks if we need to notify.
+		if (single) outputProject(notify, ID, 0, 0);
+		
+		//Creates an instance of the social network builder.
+		if (snb == null)
+			snb = new SocialNetworkBuilder();
+		else
+			snb.refresh();
+		
+		//Builds the social network.
+		outputStatus(notify, StepDescrip.LOAD, null);
+		snb.buildSocialNetwork(ID);
+    	
+		//Check for prepass options.
+		//Filters unnecessary files and contributors.
+		if (preContrib) snb.filterContributors();
+		if (preFiles) snb.filterFiles();
+		
+		//Compute the centrality metrics.
+		for (SocialMetrics current : metrics){
+			switch (current){
+				case F_BETWEENNESS:
+					//Compute betweenness centrality.
+					outputStatus(notify, StepDescrip.BETWEEN, null);
+					snb.computeBetweennessCentrality();
+					break;
+				case F_CLOSENESS:
+					//Compute first type of closeness centrality.
+					outputStatus(notify, StepDescrip.F_CLOSE, null);
+					snb.computeFreemanClosenessCentrality();
+					break;
+				case R_CLOSENESS:
+					//Compute second type of closeness centrality.
+					outputStatus(notify, StepDescrip.R_CLOSE, null);
+					snb.computeReachabilityClosenessCentrality();
+					break;
+				case F_DEGREE:
+					//Compute the first type of degree centrality.
+					outputStatus(notify, StepDescrip.F_DEGREE, null);
+					snb.computeFreemanDegreeCentrality();
+					break;
+				case BP_DEGREE:
+					//Compute Boniach's Power
+					outputStatus(notify, StepDescrip.BP_DEGREE, null);
+					snb.computeBonacichPower();
+					break;
+			}
+		}
+
+    	//Computes the Spearman and PR values.
+		double[][] spearmanValue = null;
+		if (spearman) {
+			outputStatus(notify, StepDescrip.SPEAR, null);
+	    	spearmanValue = snb.performSpearmanCorrelation();
+		}
+		
+		//Performs machine learning.
+		outputStatus(notify, StepDescrip.ML, mlType);
+		double[][] pR = snb.performML(metrics, iterations, training, 
+				mlType);
+    	
+    	//Returns the final result.
+    	return generateCSV(ID, csvOut, projNum, iterations, spearmanValue, pR);
+	}
+
+	private static void outputProject(PerformAnalysis notify, 
+			String ID, int cur, int last){
+		if (notify == null)
+			//Prints to the console if not defined.
+			System.out.println("Mining project #" + ID);
+		else
+			//Otherwise, calls appropriate method.
+			notify.informCurrentProj(ID, cur, last);
+	}
+	
+	private static void outputStatus(PerformAnalysis notify, StepDescrip descrip,
+			MachineLearning type) {
+		if (notify == null)
+			//Prints to the console if not defined.
+			System.out.println("\t" + descrip.toString());
+		else
+			if (descrip == StepDescrip.ML){
+				notify.informML(type, descrip);
+			} else {
+				//Otherwise, calls appropriate method.
+				notify.informCurrentStep(descrip);
+			}
+	}
+	
+	public SocialNetworkBuilder(){
+		//Refreshes the logistic manager.
+		refresh();
+		
+		//Creates the logicstic regression parameter.
+		finalThreshold = 0;
+	}
+
+	private void refresh(){
+		betweenScore = new HashMap<Actor, Double>();
+		fCloseScore = new HashMap<Actor, Double>();
+		rCloseScore = new HashMap<Actor, Double>();
+		fDegreeScore = new HashMap<Actor, Double>();
+		bpDegreeScore = new HashMap<Actor, Double>();
+		
+		//Initializes the graph.
+		network = new UndirectedSparseGraph<Actor, Commit>();
+	}
+	
+	public Graph<Actor, Commit> buildSocialNetwork(String projectID){
+		//Connects to the database.
+		Connection conn = null;
+		Statement state = null;
+	    try {
+	    	conn = DriverManager.getConnection("jdbc:sqlite:" + DB_LOC);
+	    	state = conn.createStatement();
+			state.setQueryTimeout(TIMEOUT);
+	    } catch (SQLException e){
+	    	e.printStackTrace();
+	    	return null;
+	    }
+	    
+	    //Reads all project files.
+		ArrayList<String[]> files = readFiles(projectID, state);
+		if (files == null) return null;
+		Map<String, FileActor> fileLookup = buildLookupFiles(files);
+		
+		//Reads all project users.
+		ArrayList<String[]> users = readUsers(projectID, state);
+		if (users == null) return null;
+		Map<String, UserActor> userLookup = buildLookupUsers(users);
+		
+		//Reads all edges.
+		ArrayList<String[]> contrib = readContributions(projectID, state);
+		if (contrib == null) return null;
+		addEdges(fileLookup, userLookup, contrib);
+		
+		//Closes the database connection.
+		try {
+			conn.close();
+		} catch (SQLException e) {
+			e.printStackTrace();
+			return null;
+		}
+		
+		return network;
+	}
+
+	public void filterContributors(){
+		//TODO: Implement
+	}
+	
+	public void filterFiles(){
+		//TODO: Check correctness.
+		//Pulls a list of all invalid files from the database.
+		String sql = "SELECT Name FROM InvalidFile;";
 		
 		Connection conn = null;
 		Statement state = null;
@@ -115,149 +432,31 @@ public class SocialNetworkBuilder {
 			//Runs the query to get all project IDs
 			ResultSet rs = state.executeQuery(sql);
 			while (rs.next()){
-				results.add(rs.getString("ProjectID"));
+				results.add(rs.getString("Name"));
 			}
 		    conn.close();
 	    } catch (SQLException e){
 	    	e.printStackTrace();
-	    	return "";
+	    	return;
 	    }
 	    
-		//Clears the arrays that hold average.
-		resetArrays(results.size(), iterations);
-		
-	    //Next, we iterate through all the IDs and run our program on it.
-	    String csv = "";
-	    for (String ID : results){
-	    	performFunctions(ID, csvOut, output, iterations);
-	    	projNum++;
+	    //Next, we iterate through the results.
+	    FileActor file;
+	    for (String curr : results){
+	    	//We loop through the graph for each string.
+	    	for (Actor act : network.getVertices()){
+	    		if (act instanceof UserActor) continue;
+	    		
+	    		//Now checks if the filename matches.
+	    		file = (FileActor) act;
+	    		if (file.getFileName().matches(curr)){
+	    			network.removeVertex(file);
+	    		}
+	    	}
+	    	
 	    }
-	    
-	    System.out.println("All " + results.size() + " projects " +
-				"analyzed in " + 
-    			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
-	    return csv;
 	}
 	
-	public static String performFunctionsOnSome(String[] networks, 
-			String csvOut, String output, int iterations) {		
-		long startTime = System.currentTimeMillis();
-		
-		//Clears the arrays that hold average.
-		resetArrays(networks.length, iterations);
-		
-		//Simply loop through all the networks.
-		String csv = "";
-		for (String ID : networks){
-			csv += performFunctions(ID, csvOut, output, iterations);
-			projNum++;
-		}
-		
-		//Prints out the final values.
-		csv += computeFinalStats();
-		
-		System.out.println("All " + networks.length + " projects " +
-				"analyzed in " + 
-    			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
-		return csv;
-	}
-	
-	public static String performFunctions(String ID, String csvOut,
-			String output, int iterations){
-		long startTime = System.currentTimeMillis();
-		
-		//Creates an instance of the social network builder.
-		if (snb == null)
-			snb = new SocialNetworkBuilder();
-		else
-			snb.refresh();
-		
-		//Builds the social network.
-		System.out.println("Developing social network for project #" + ID + "...");
-		snb.buildSocialNetwork(ID);
-    	
-		//Computes the centrality.
-		System.out.println("Computing betweenness centrality for project #" + ID + "...");
-    	snb.computeBetweennessCentrality();
-    	System.out.println("Computing closeness centrality for project #" + ID + "...");
-    	snb.computeClosenessCentrality();
-    	System.out.println("Computing degree centrality for project #" + ID + "...");
-    	snb.computeDegreeCentrality();
-    	
-    	//Computes the Spearman and PR values.
-    	System.out.println("Calculating Spearman Correlation for all metrics " +
-    			"for project #" + ID + "...");
-    	double[][] spearman = snb.performSpearmanCorrelation();
-    	System.out.println("Performing logical regression for project #" + ID + "...");
-    	double[][] pR = snb.performRegression(output + "_" + ID, iterations);
-    	
-    	//Returns the final result.
-    	System.out.println("Generating CSV text...");
-    	String CSV = generateCSV(ID, csvOut, projNum, iterations, spearman, pR);
-    	
-    	System.out.println("Project #" + ID + " analyzed in " + 
-    			(System.currentTimeMillis() - startTime) / 1000 + " seconds.");
-    	
-    	return CSV;
-	}
-	
-	public SocialNetworkBuilder(){
-		//Refreshes the logistic manager.
-		refresh();
-		
-		//Creates the logicstic regression parameter.
-		manager = new ModelManager(60f, NUM_REGRESS_ITER);
-		finalThreshold = 0;
-	}
-	
-	private void refresh(){
-		betweenScore = new HashMap<Actor, Double>();
-		//closeScore = new HashMap<Actor, Double>();
-		degreeScore = new HashMap<Actor, Double>();
-		
-		//Initializes the graph.
-		network = new UndirectedSparseGraph<Actor, Commit>();
-	}
-	
-	public boolean buildSocialNetwork(String projectID){
-		//Connects to the database.
-		Connection conn = null;
-		Statement state = null;
-	    try {
-	    	conn = DriverManager.getConnection("jdbc:sqlite:" + DB_LOC);
-	    	state = conn.createStatement();
-			state.setQueryTimeout(TIMEOUT);
-	    } catch (SQLException e){
-	    	e.printStackTrace();
-	    	return false;
-	    }
-	    
-	    //Reads all project files.
-		ArrayList<String[]> files = readFiles(projectID, state);
-		if (files == null) return false;
-		Map<String, FileActor> fileLookup = buildLookupFiles(files);
-		
-		//Reads all project users.
-		ArrayList<String[]> users = readUsers(projectID, state);
-		if (users == null) return false;
-		Map<String, UserActor> userLookup = buildLookupUsers(users);
-		
-		//Reads all edges.
-		ArrayList<String[]> contrib = readContributions(projectID, state);
-		if (contrib == null) return false;
-		addEdges(fileLookup, userLookup, contrib);
-		
-		//Closes the database connection.
-		try {
-			conn.close();
-		} catch (SQLException e) {
-			e.printStackTrace();
-			return false;
-		}
-		
-		return true;
-	}
-
 	public boolean computeBetweennessCentrality(){
 		//First, checks if we have a full graph.
 		if (network.getVertexCount() == 0) return false;
@@ -275,7 +474,7 @@ public class SocialNetworkBuilder {
 		return true;
 	}
 	
-	public boolean computeClosenessCentrality(){
+	public boolean computeFreemanClosenessCentrality(){
 		//First, checks if we have a full graph.
 		if (network.getVertexCount() == 0) return false;
 		if (edgeWeights == null) developTransformer();
@@ -286,13 +485,29 @@ public class SocialNetworkBuilder {
 		
 		//Iterates through all the vertices.
 		for (Actor curr : network.getVertices()){
-			closeScore.put(curr, closeCompute.getVertexScore(curr));
+			fCloseScore.put(curr, closeCompute.getVertexScore(curr));
 		}
 		
 		return true;
 	}
 	
-	public boolean computeDegreeCentrality(){
+	public boolean computeReachabilityClosenessCentrality(){
+		//First, checks if we have a full graph.
+		if (network.getVertexCount() == 0) return false;
+		
+		//Creates the reachability centrality object.
+		ReachabilityCentrality<Actor, Commit> closeCompute =
+				new ReachabilityCentrality<Actor, Commit>(network);
+		
+		//Iterates through all the vertices.
+		for (Actor curr : network.getVertices()){
+			rCloseScore.put(curr, closeCompute.getVertexScore(curr));
+		}
+		
+		return true;
+	}
+	
+	public boolean computeFreemanDegreeCentrality(){
 		//First, checks if we have a full graph.
 		if (network.getVertexCount() == 0) return false;
 		
@@ -302,24 +517,117 @@ public class SocialNetworkBuilder {
 		
 		//Iterates through all the vertices.
 		for (Actor curr : network.getVertices()){
-			degreeScore.put(curr, (double) degreeCompute.getVertexScore(curr));
+			fDegreeScore.put(curr, (double) degreeCompute.getVertexScore(curr));
 		}
 		
 		return true;
 	}
 	
-	public double[][] performRegression(String output, int iterations){
-		//We compute centrality first.
-		if (betweenScore.size() == 0){
-			computeBetweennessCentrality();
-		}
-		//if (closeScore.size() == 0){
-			//computeClosenessCentrality();
-		//}
-		if (degreeScore.size() == 0){
-			computeDegreeCentrality();
+	public boolean computeBonacichPower(){
+		//Check if we have a full graph.
+		if (network.getVertexCount() == 0) return false;
+		if (edgeWeights == null) developTransformer();
+		
+		//Create the Bonacich Power scorer.
+		EigenvectorCentrality<Actor,Commit> bpCompute =
+				new EigenvectorCentrality<Actor, Commit>(network, edgeWeights);
+		bpCompute.acceptDisconnectedGraph(true);
+		bpCompute.evaluate();
+		
+		//Iterates through the vertices.
+		for (Actor curr : network.getVertices()){
+			bpDegreeScore.put(curr, (double) bpCompute.getVertexScore(curr));
 		}
 		
+		return true;
+	}
+	
+	public double[][] performML(ArrayList<SocialMetrics> metrics, 
+			int iterations, int split, 
+			MachineLearning type) throws Exception{
+		//First, we get the bug threshold.
+		double threshold = getBugThreshold();
+		
+		//We then normalize our centrality metrics.
+		for (SocialMetrics current : metrics){
+			switch(current){
+				case F_BETWEENNESS:
+					betweenScore = normalize(betweenScore);
+					break;
+				case F_CLOSENESS:
+					fCloseScore = normalize(fCloseScore);
+					break;
+				case R_CLOSENESS:
+					rCloseScore = normalize(rCloseScore);
+					break;
+				case F_DEGREE:
+					fDegreeScore = normalize(fDegreeScore);
+					break;
+				case BP_DEGREE:
+					bpDegreeScore = normalize(bpDegreeScore);
+					break;
+			}
+		}
+		
+		//Creates array to hold metrics.
+		Map<String, ArrayList<Double>> metricEntry = 
+				new HashMap<String, ArrayList<Double>>();
+		for(int i = 0; i < metrics.size() + 1; i++){
+			if (i == metrics.size()){
+				metricEntry.put(MLAnalysis.CLASS_ATTRIBUTE, new ArrayList<Double>());
+			} else {
+				metricEntry.put(metrics.get(i).getShort(), new ArrayList<Double>());
+			}
+		}
+		
+		//Iterate through and generate a list of all metrics.
+		for (Actor act : network.getVertices()){
+			//We skip users and only look at files.
+			if (act.getType() == ActorType.USER) continue;
+			
+			//Adds in the feature types.
+			for (SocialMetrics current : metrics){
+				switch(current){
+					case F_BETWEENNESS:
+						metricEntry.get(current.getShort()).add(
+							betweenScore.get(act));
+						break;
+					case F_CLOSENESS:
+						metricEntry.get(current.getShort()).add(
+							fCloseScore.get(act));
+						break;
+					case R_CLOSENESS:
+						metricEntry.get(current.getShort()).add(
+							rCloseScore.get(act));
+						break;
+					case F_DEGREE:
+						metricEntry.get(current.getShort()).add(
+							fDegreeScore.get(act));
+						break;
+					case BP_DEGREE:
+						metricEntry.get(current.getShort()).add(
+							bpDegreeScore.get(act));
+						break;
+				}
+			}
+			
+			//Get the label.
+			FileActor file = (FileActor) act;
+			double bugProportion = (double) file.getBugFixes() / file.getCommits();
+			int label = (bugProportion > threshold) ? 1 : 0;
+			metricEntry.get(MLAnalysis.CLASS_ATTRIBUTE).add((double)label);
+		}
+		
+		//Next, runs the actual machine learning algorithm.
+		double prResults[][] = MLAnalysis.runMachineLearning(type, metrics, metricEntry,
+				(float) split, iterations);
+
+		//Returns the precision and recall.
+		finalThreshold = THRESHOLD;	
+		return prResults;
+	}
+
+	private double getBugThreshold(){
 		//Develop our bug threshold.
 		ArrayList<Double> bugs = new ArrayList<Double>();
 		for(Actor act : network.getVertices()){
@@ -330,48 +638,10 @@ public class SocialNetworkBuilder {
 			//Gets the current bug threshold.
 			bugs.add((double) file.getBugFixes() / file.getCommits());
 		}
-		double[] bugSorted = ArrayUtils.toPrimitive(bugs.toArray(new Double[bugs.size()]));
+		double[] bugSorted = ArrayUtils.toPrimitive
+				(bugs.toArray(new Double[bugs.size()]));
 		Arrays.sort(bugSorted);
-		double threshold = (new Median()).evaluate(bugSorted);
-		
-		//Next, we normalize the other variables.
-		Map<Actor, Double> betweenNorm = normalize(betweenScore);
-		Map<Actor, Double> closeNorm = normalize(closeScore);
-		Map<Actor, Double> degreeNorm = normalize(degreeScore);
-		
-		//First we transform our dataset.
-		List<LabeledPoint> metricEntry = new ArrayList<LabeledPoint>();
-		for (Actor act : network.getVertices()){
-			//We skip users and only look at files.
-			if (act.getType() == ActorType.USER) continue;
-		
-			//Now we get all the centrality metrics and set them as a features.
-			Double betweenCentrality = betweenNorm.get(act);
-			Double closeCentrality = closeNorm.get(act);
-			Double degreeCentrality = degreeNorm.get(act);
-			
-			//Get the label.
-			FileActor file = (FileActor) act;
-			double bugProportion = (double) file.getBugFixes() / file.getCommits();
-			int label = (bugProportion > threshold) ? 1 : 0;
-			
-			//Adds the feature.
-			metricEntry.add(new LabeledPoint
-					(label, 
-					Vectors.dense(betweenCentrality, 
-							closeCentrality, degreeCentrality))); 
-		}
-		
-		//Now that we have our labeled point setup, we pass it to Spark.
-		manager.runIterations(metricEntry, output,  iterations);
-		
-		//Gets the precision and recall for each.
-		double[][] prResults = new double[2][iterations];
-		prResults[0] = manager.getPrecision();
-		prResults[1] = manager.getRecall();
-		finalThreshold = manager.getThreshold();
-		
-		return prResults;
+		return (new Median()).evaluate(bugSorted);	
 	}
 	
 	private Map<Actor, Double> normalize(Map<Actor, Double> score) {
@@ -393,43 +663,11 @@ public class SocialNetworkBuilder {
 			normMap.put(actors[j], values[j]);
 		
 		return normMap;
-		//Build a new map.
-		/*Map<Actor, Double> normMap = new HashMap<Actor, Double>();
-		double[] values = new double[score.size()];
-		
-		//Iterate through our old map.
-		int i = 0;
-		for (Map.Entry<Actor, Double> entry : score.entrySet()){
-			values[i++] = entry.getValue();
-		}
-		
-		//Get the min and max.
-		double min = StatUtils.min(values);
-		double max = StatUtils.max(values);
-		
-		//Adds to the new map.
-		for (Map.Entry<Actor, Double> entry : score.entrySet()){
-			double norm = ((entry.getValue() - min) / (min + max));
-			normMap.put(entry.getKey(), norm);
-		}
-		
-		return normMap;*/
 	}
 
-	public double[][] performSpearmanCorrelation(){
+	public double[][] performSpearmanCorrelation(){		
 		double[][] xCol, yCol;
-		double[][] correlation = new double[MAX_CORR*2][MAX_CORR*2];
-		
-		//We compute centrality first.
-		if (betweenScore.size() == 0){
-			computeBetweennessCentrality();
-		}
-		if (closeScore.size() == 0){
-			computeClosenessCentrality();
-		}
-		if (degreeScore.size() == 0){
-			computeDegreeCentrality();
-		}
+		double[][] correlation = new double[numMetrics * 2][numMetrics * 2];
 		
 		//Calculate number of files.
 		int numFiles = 0;
@@ -441,15 +679,15 @@ public class SocialNetworkBuilder {
 		TTest corrTest = new TTest();
 		
 		//Populates all columns.
-		xCol = populateAll(numFiles);
-		yCol = populateAll(numFiles);
+		xCol = populateAll(numMetrics, numFiles);
+		yCol = populateAll(numMetrics, numFiles);
 		
 		//Performs correlation analysis.
-		for (int i = 0; i < MAX_CORR; i++){
-			for (int j = 0; j < MAX_CORR; j++){
+		for (int i = 0; i < numMetrics; i++){
+			for (int j = 0; j < numMetrics; j++){
 				//Performs Spearmans correlation.
 				correlation[i][j] = corr.correlation(xCol[i], yCol[j]);
-				correlation[i + MAX_CORR][j + MAX_CORR] = 
+				correlation[i + numMetrics][j + numMetrics] = 
 						corrTest.pairedTTest(xCol[i], yCol[j], 0.01) ? 1d :
 							0d;
 			}
@@ -467,12 +705,51 @@ public class SocialNetworkBuilder {
 		};
 	}
 	
-	private double[][] populateAll(int size){
-		double[][] columnVals = new double[MAX_CORR][size];
+	private double[][] populateAll(int numMetrics, int numFiles){
+		double[][] columnVals = new double[numMetrics][numFiles];
 		
 		//Populate the columns for all metrics.
-		for (int i = 0; i < MAX_CORR; i++){
-			columnVals[i] = populateColumn(size, ColumnType.valueOf(i));
+		int pos = 0;
+		boolean insert = false;
+		for (int i = 0; i < ColumnType.TOTAL; i++){
+			switch(ColumnType.valueOf(i)){
+				case COMMIT:
+				case FAILURE:
+					insert = true;
+					break;
+				case F_BETWEENNESS:
+					if (betweenScore.size() > 0){
+						insert = true;
+					}
+					break;
+				case F_CLOSENESS:
+					if (fCloseScore.size() > 0){
+						insert = true;
+					}
+					break;
+				case R_CLOSENESS:
+					if (rCloseScore.size() > 0){
+						insert = true;
+					}
+					break;
+				case F_DEGREE:
+					if (fDegreeScore.size() > 0){
+						insert = true;
+					}
+					break;
+				case BP_DEGREE:
+					if (bpDegreeScore.size() > 0){
+						insert = true;
+					}
+					break;
+			}
+			
+			//Check if we're inserting.
+			if (insert){
+				insert = false;
+				columnVals[pos] = populateColumn(numFiles, ColumnType.valueOf(i));
+				pos++;
+			}
 		}
 		
 		return columnVals;
@@ -495,14 +772,20 @@ public class SocialNetworkBuilder {
 				case FAILURE:
 					result[i] = file.getBugFixes();
 					break;
-				case BETWEEN:
+				case F_BETWEENNESS:
 					result[i] = betweenScore.get(file);
 					break;
-				case CLOSE:
-					result[i] = closeScore.get(file);
+				case F_CLOSENESS:
+					result[i] = fCloseScore.get(file);
 					break;
-				case DEGREE:
-					result[i] = degreeScore.get(file);
+				case R_CLOSENESS:
+					result[i] = rCloseScore.get(file);
+					break;
+				case F_DEGREE:
+					result[i] = fDegreeScore.get(file);
+					break;
+				case BP_DEGREE:
+					result[i] = bpDegreeScore.get(file);
 					break;
 			}
 			
@@ -655,8 +938,10 @@ public class SocialNetworkBuilder {
 		String output = "Project #" + ID + ":\n";
 		
 		//Prints the Spearman correlations.
-		output += "Spearman - \n";
-		output += printSpearman(num, spearman);
+		if (spearman != null){
+			output += "Spearman - \n";
+			output += printSpearman(num, spearman);
+		}
 		
 		//Prints the Precision and Recall values.
 		output += "Precision & Recall - \n";
@@ -705,17 +990,19 @@ public class SocialNetworkBuilder {
 		String output = "";
 		
 		//First, print out the correlations.
-		for (int i = -1; i < MAX_CORR; i++){
+		for (int i = -1; i < numMetrics; i++){
 			String line = "";
-			for (int j = -1; j < MAX_CORR; j++){
+			for (int j = -1; j < numMetrics; j++){
 				//Checks if we're printing the labels.
 				if (i == -1 && j == -1){
 					line += ",";
 					continue;
 				} else if (i == -1){
-					line += ColumnType.labelFor(j);
+					if (j == 0 || j == 1) line += ColumnType.labelFor(j);
+					else line += metricList.get(j - 2).toString();
 				} else if (j == -1){
-					line += ColumnType.labelFor(i);
+					if (i == 0 || i == 1) line += ColumnType.labelFor(i);
+					else line += metricList.get(i - 2).toString();
 				} else {
 					//Print the value.
 					line += spearman[i][j];
@@ -724,7 +1011,7 @@ public class SocialNetworkBuilder {
 				}
 				
 				//Adds in the ,
-				if (j < MAX_CORR - 1)
+				if (j < numMetrics - 1)
 					line += ",";
 			}
 			
@@ -733,24 +1020,26 @@ public class SocialNetworkBuilder {
 		}
 		
 		//Next, print out the p-values.
-		for (int i = (MAX_CORR - 1); i < MAX_CORR * 2; i++){
+		for (int i = (numMetrics - 1); i < numMetrics * 2; i++){
 			String line = "";
-			for (int j = (MAX_CORR - 1); j < MAX_CORR * 2; j++){
+			for (int j = (numMetrics - 1); j < numMetrics * 2; j++){
 				//Checks if we're printing the labels.
-				if (i == (MAX_CORR - 1) && j == (MAX_CORR) - 1){
+				if (i == (numMetrics - 1) && j == (numMetrics) - 1){
 					line += ",";
 					continue;
-				} else if (i == (MAX_CORR - 1)){
-					line += ColumnType.labelFor(j - MAX_CORR);
-				} else if (j == (MAX_CORR - 1)){
-					line += ColumnType.labelFor(i - MAX_CORR);
+				} else if (i == (numMetrics - 1)){
+					if (j == numMetrics || j == (numMetrics + 1)) line += ColumnType.labelFor(j - numMetrics);
+					else line += metricList.get(j - numMetrics - 2).toString();
+				} else if (j == (numMetrics - 1)){
+					if  (i == numMetrics || i == (numMetrics + 1)) line += ColumnType.labelFor(i - numMetrics);
+					else line += metricList.get(i - numMetrics - 2).toString();
 				} else {
 					//Print the value.
 					line += spearman[i][j];
 				}
 				
 				//Adds in the ,
-				if (j < (MAX_CORR * 2) - 1)
+				if (j < (numMetrics * 2) - 1)
 					line += ",";
 			}
 			
@@ -760,15 +1049,19 @@ public class SocialNetworkBuilder {
 		return output;
 	}
 	
-	private static void resetArrays(int numProj, int iterations){
+	private static void resetArrays(boolean spearman, int numProj, int iterations){
 		//Resets stats values.
-		corr = new double[MAX_CORR][MAX_CORR][numProj];
+		if (spearman){
+			corr = new double[numMetrics][numMetrics][numProj];
 		
-		//Fills them.
-		for (int i = 0; i < MAX_CORR; i++){
-			for (int j = 0; j < MAX_CORR; j++){
-				Arrays.fill(corr[i][j], 0d);
+			//Fills them.
+			for (int i = 0; i < numMetrics; i++){
+				for (int j = 0; j < numMetrics; j++){
+					Arrays.fill(corr[i][j], 0d);
+				}
 			}
+		} else {
+			corr = null;
 		}
 		
 		//Resets PR values.
@@ -781,43 +1074,48 @@ public class SocialNetworkBuilder {
 	}
 	
 	private static String computeFinalStats(){
-		String csv = "Final Spearman Statistics (Mean, Median, Std Dev) - \n";
 		DescriptiveStatistics dev = new DescriptiveStatistics();
 		Median med = new Median();
 		
-		//We want to compute the final stats
-		for (int i = -1; i < MAX_CORR; i++){
-			String line = "";
-			for (int j = -1; j < MAX_CORR; j++){
-				//Checks if we're printing the labels.
-				if (i == -1 && j == -1){
-					line += ",";
-					continue;
-				} else if (i == -1){
-					line += ColumnType.labelFor(j);
-				} else if (j == -1){
-					line += ColumnType.labelFor(i);
-				} else {
-					//Adds the number in for standard deviation.
-					for (double num : corr[i][j])
-						dev.addValue(num);
+		String csv = "";
+		if (corr != null){
+			csv = "Final Spearman Statistics (Mean, Median, Std Dev) - \n";
+			
+			//We want to compute the final stats
+			for (int i = -1; i < numMetrics; i++){
+				String line = "";
+				for (int j = -1; j < numMetrics; j++){
+					//Checks if we're printing the labels.
+					if (i == -1 && j == -1){
+						line += ",";
+						continue;
+					} else if (i == -1){
+						if (j == 0 || j == 1) line += ColumnType.labelFor(j);
+						else line += metricList.get(j - 2).toString();
+					} else if (j == -1){
+						if (i == 0 || i == 1) line += ColumnType.labelFor(i);
+						else line += metricList.get(i - 2).toString();
+					} else {
+						//Adds the number in for standard deviation.
+						for (double num : corr[i][j])
+							dev.addValue(num);
+						
+						//Print the value.
+						line += StatUtils.mean(corr[i][j]) + " " +
+								med.evaluate(corr[i][j]) + " " +
+								dev.getStandardDeviation();
+						dev.clear();
+					}
 					
-					//Print the value.
-					line += StatUtils.mean(corr[i][j]) + " " +
-							med.evaluate(corr[i][j]) + " " +
-							dev.getStandardDeviation();
-					dev.clear();
+					//Adds in the ,
+					if (j < numMetrics - 1)
+						line += ",";
 				}
-				
-				//Adds in the ,
-				if (j < MAX_CORR - 1)
-					line += ",";
+						
+				//Flushes output.
+				csv += line + "\n";
 			}
-					
-			//Flushes output.
-			csv += line + "\n";
 		}
-		
 		//Next, computes the precision and recall values.
 		Arrays.sort(PR[0]);
 		Arrays.sort(PR[1]);

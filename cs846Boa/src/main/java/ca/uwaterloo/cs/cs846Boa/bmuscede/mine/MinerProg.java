@@ -19,6 +19,7 @@ import java.awt.Font;
 import javax.swing.SwingConstants;
 import javax.swing.JComboBox;
 import javax.swing.DefaultComboBoxModel;
+import java.awt.Toolkit;
 
 public class MinerProg {
 	private JFrame frmGithubIssueMiner;
@@ -61,6 +62,7 @@ public class MinerProg {
 		gitHubMiner = null;
 		
 		frmGithubIssueMiner = new JFrame();
+		frmGithubIssueMiner.setIconImage(Toolkit.getDefaultToolkit().getImage(MinerProg.class.getResource("/transport.png")));
 		frmGithubIssueMiner.setResizable(false);
 		frmGithubIssueMiner.setTitle("GitHub Issue Miner");
 		frmGithubIssueMiner.setBounds(100, 100, 636, 400);

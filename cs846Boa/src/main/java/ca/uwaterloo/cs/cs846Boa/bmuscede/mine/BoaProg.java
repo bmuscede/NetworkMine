@@ -12,6 +12,7 @@ import java.awt.event.ActionEvent;
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.border.TitledBorder;
+
 import ca.uwaterloo.cs.cs846Boa.bmuscede.common.ContributionBuilder;
 import javax.swing.JSpinner;
 import javax.swing.JSeparator;
@@ -24,10 +25,11 @@ import javax.swing.ImageIcon;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.JProgressBar;
+import java.awt.Toolkit;
 
 public class BoaProg implements FinishedCallback {
 	private ContributionBuilder contribution;
-	private JFrame frmBoaMiner;
+	public JFrame frmBoaMiner;
 	private JTable tblProj;
 	private JPanel pnlWait;
 	private JPanel pnlStage2;
@@ -59,6 +61,9 @@ public class BoaProg implements FinishedCallback {
 			public void run() {
 				try {					
 					window = new BoaProg();
+					
+					if (window.frmBoaMiner == null) return;
+					
 					window.frmBoaMiner.setVisible(true);
 				} catch (Exception e) {
 					e.printStackTrace();
@@ -81,7 +86,9 @@ public class BoaProg implements FinishedCallback {
 			login.setVisible(true);
 			
 			//Wait for success.
-			if (login.getSuccess() == false) System.exit(0);
+			if (login.getSuccess() == false) {
+				return;
+			}
 			
 			//Now we try to log into Boa with this.
 			if (contribution.login(
@@ -97,16 +104,24 @@ public class BoaProg implements FinishedCallback {
 		initialize(login.getUsername());
 	}
 
+	public BoaProg(String username, ContributionBuilder manage){
+		//Set the contribution manager as the one passed.
+		contribution = manage;
+		
+		initialize(username);
+	}
+	
 	/**
 	 * Initialize the contents of the frame.
 	 */
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	private void initialize(String username) {
 		frmBoaMiner = new JFrame();
+		frmBoaMiner.setIconImage(Toolkit.getDefaultToolkit().getImage(BoaProg.class.getResource("/transport.png")));
 		frmBoaMiner.setResizable(false);
-		frmBoaMiner.setTitle("Boa Miner");
+		frmBoaMiner.setTitle("NetworkMine - Boa Miner");
 		frmBoaMiner.setBounds(100, 100, 539, 317);
-		frmBoaMiner.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		frmBoaMiner.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 		frmBoaMiner.getContentPane().setLayout(null);
 		
 		pnlWait = new JPanel();
@@ -216,7 +231,8 @@ public class BoaProg implements FinishedCallback {
 		JButton btnClose2 = new JButton("Close");
 		btnClose2.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
-				System.exit(0);
+				frmBoaMiner.setVisible(false);
+				frmBoaMiner.dispose();
 			}
 		});
 		btnClose2.setBounds(15, 176, 170, 45);
@@ -285,10 +301,11 @@ public class BoaProg implements FinishedCallback {
 		btnFind.setBounds(339, 183, 179, 49);
 		frmBoaMiner.getContentPane().add(btnFind);
 		
-		btnClose = new JButton("Close");
+		btnClose = new JButton("Close Boa Miner");
 		btnClose.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
-				System.exit(0);
+				frmBoaMiner.setVisible(false);
+				frmBoaMiner.dispose();
 			}
 		});
 		btnClose.setBounds(15, 183, 179, 49);
@@ -352,13 +369,15 @@ public class BoaProg implements FinishedCallback {
 			JOptionPane.showMessageDialog(null, "Error!\n"
 		    		+ "Something went wrong while mining the software.", "Boa Miner",
 		    		JOptionPane.ERROR_MESSAGE);
-			System.exit(0);
+			frmBoaMiner.setVisible(false);
+			frmBoaMiner.dispose();
 		}
 		
 		JOptionPane.showMessageDialog(null, "Success!\n"
 	    		+ "All selected Boa projects were mined.", "Boa Miner",
 	    		JOptionPane.INFORMATION_MESSAGE);
-		System.exit(0);
+		frmBoaMiner.setVisible(false);
+		frmBoaMiner.dispose();
 	}
 
 	@Override

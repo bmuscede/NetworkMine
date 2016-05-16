@@ -1,12 +1,17 @@
 package ca.uwaterloo.cs.cs846Boa.bmuscede.network;
 
-import java.io.File;
-import java.io.IOException;
-import org.apache.commons.io.FileUtils;
-import org.kohsuke.args4j.*;
+import java.util.ArrayList;
+import org.kohsuke.args4j.CmdLineException;
+import org.kohsuke.args4j.CmdLineParser;
+import org.kohsuke.args4j.Option;
+import org.kohsuke.args4j.ParserProperties;
+
+import ca.uwaterloo.cs.cs846Boa.bmuscede.network.NetworkMetrics.MachineLearning;
+import ca.uwaterloo.cs.cs846Boa.bmuscede.network.NetworkMetrics.SocialMetrics;
 
 public class SocialNetworkProg {
-
+	private static final int DEFAULT_TRAIN = 60;
+	
     public static class Args {
     	//The project ID.
         @Option(name = "-projectID", metaVar = "[pID]", 
@@ -23,9 +28,10 @@ public class SocialNetworkProg {
         		required = true, usage = "The output file for the CSV generated.")
         public String csvOut;
         
-        @Option(name = "-csvFlag",
-        		required = false, usage = "Whether we output each step.")
-        public boolean csvFlag = false;
+        //Whether we perform prepass.
+        @Option(name = "-prepass", 
+        		required = false, usage = "Whether prepass analysis is performed.")
+        public boolean prepass;
         
         //The number of regression iterations.
         @Option(name = "-iterations", metaVar = "[num]", 
@@ -48,43 +54,34 @@ public class SocialNetworkProg {
     		return;
     	}
     	
-    	String csvOut = "";
-    	if (arguments.csvFlag){
-    		csvOut = arguments.csvOut;
-    		csvOut = "<PLACEHOLDER>_" + csvOut;
-    	}
+    	String csvOut = arguments.csvOut;
+
+    	//Creates a default list of metrics.
+    	ArrayList<SocialMetrics> metrics = new ArrayList<SocialMetrics>();
+    	metrics.add(SocialMetrics.F_BETWEENNESS);
+    	metrics.add(SocialMetrics.F_CLOSENESS);
+    	metrics.add(SocialMetrics.F_DEGREE);
     	
     	//Checks the project ID flag.
-    	String CSV = "";
     	if (arguments.projectID.equals("all")){
     		//Runs the analysis on ALL networks.
-    		CSV += SocialNetworkBuilder.performFunctionsOnAll(arguments.output, 
-    				csvOut, arguments.iterations);
+    		SocialNetworkBuilder.performAnalysisOnAll(null,
+    				csvOut, arguments.prepass, arguments.prepass, 
+    				metrics, true, MachineLearning.SVM, 
+    				arguments.iterations, DEFAULT_TRAIN);
     	} else if (arguments.projectID.contains(",")) {
     		//Runs on a collection of networks.
     		String[] networks = arguments.projectID.split(",");
-    		CSV += SocialNetworkBuilder.performFunctionsOnSome(networks,
-    				csvOut, arguments.output, arguments.iterations);
+    		SocialNetworkBuilder.performAnalysisOnSome(null, networks,
+    				csvOut, arguments.prepass, arguments.prepass, 
+    				metrics, true, MachineLearning.SVM, 
+    				arguments.iterations, DEFAULT_TRAIN);
     	} else {
     		//Runs the analysis on some specified network.
-    		CSV += SocialNetworkBuilder.performFunctions(arguments.projectID, 
-    				csvOut, arguments.output, arguments.iterations);
+    		SocialNetworkBuilder.performAnalysis(null, arguments.projectID, 
+    				csvOut, arguments.prepass, arguments.prepass, 
+    				metrics, true, MachineLearning.SVM, 
+    				arguments.iterations, DEFAULT_TRAIN);
     	}
-    	
-    	//Checks for failures.
-    	if (CSV.equals("")){
-    		System.err.println("Failure performing analysis on social network "
-    				+ "for project #" + arguments.projectID + "!");
-    		return;
-    	}
-    	
-    	//Outputs the CSV.
-    	try {
-			FileUtils.writeStringToFile(new File(arguments.csvOut), 
-					CSV);
-		} catch (IOException e) {
-			System.err.println("CSV generated but could not be written to the"
-					+ " file " + arguments.csvOut + "!");
-		}
 	}
 }
